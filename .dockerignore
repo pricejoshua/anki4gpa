@@ -60,8 +60,7 @@ Thumbs.db
 # Except test data
 !test_data/**/*
 
-# Documentation
-README.md
+# Testing and problem tracking
 TESTING.md
 problems.md
 
