@@ -61,14 +61,16 @@ The app will open in your default web browser at `http://localhost:8501`
 
 #### Tab 2: Extract Audio
 1. Upload an audio file (MP3, AAC, M4A, or WAV)
-2. Select Whisper model size:
-   - **tiny/base**: Fast, less accurate
-   - **small**: Good balance (recommended)
-   - **medium**: More accurate, slower
-   - **large**: Most accurate, slowest
-3. Set buffer time (milliseconds to add before/after each clip)
+2. Select Whisper API:
+   - **Local (faster-whisper)**: Free, runs on your computer, no API key needed
+   - **Groq API**: Fastest (~10 sec), requires free API key from [groq.com](https://console.groq.com)
+   - **OpenAI API**: Fast, requires API key from [openai.com](https://platform.openai.com)
+3. Configure settings:
+   - For **Local**: Choose model size (tiny/base/small/medium/large)
+   - For **Groq/OpenAI**: Enter API key (or set GROQ_API_KEY/OPENAI_API_KEY environment variable)
+   - Set buffer time (milliseconds to add before/after each clip)
 4. Click "Extract Audio Clips"
-5. Wait for Whisper to process (may take several minutes)
+5. Wait for processing (time varies by API choice)
 6. Preview the extracted audio clips
 
 #### Tab 3: Pair Files
@@ -77,14 +79,19 @@ The app will open in your default web browser at `http://localhost:8501`
 3. Check for any mismatches (warnings will appear)
 
 #### Tab 4: Export Deck
-1. Enter deck details:
+1. **Choose card style:**
+   - **Two Cards: Audio→Image & Image→Audio** (Recommended) - Creates 2 cards per item for comprehensive practice
+   - **One Card: Audio on front, Image on back** - Focus on audio recognition
+   - **One Card: Image on front, Audio on back** - Focus on visual recall
+   - **One Card: Audio + Image on front** - Both clues on front side
+2. **Enter deck details:**
    - Deck name (e.g., "Farsi Vocabulary")
    - Note type (e.g., "Vocabulary")
    - Tags (comma-separated, e.g., "vocab,unit1")
    - Unit/Session prefix (e.g., "Unit_1_Session_1")
-2. Click "Generate Anki Deck (.apkg)"
-3. Download the .apkg file
-4. Import into Anki (File > Import)
+3. Click "Generate Anki Deck (.apkg)"
+4. Download the .apkg file
+5. Import into Anki (File > Import)
 
 ## File Format Requirements
 
@@ -115,14 +122,29 @@ The app will open in your default web browser at `http://localhost:8501`
 3. **Pairing**: Matches files by number (1.png with 1.mp3, etc.)
 4. **Export**: Uses `genanki` to create Anki packages (.apkg) with embedded media
 
-### Model Selection
+### Whisper API Selection
 
-The Whisper model size affects:
-- **Accuracy**: Larger models are more accurate
-- **Speed**: Smaller models are faster
-- **Memory**: Larger models require more RAM
+You can choose between three Whisper backends for audio transcription:
 
-For most use cases, **small** or **medium** models provide the best balance.
+#### Local (faster-whisper)
+- **Pros**: Free, works offline, no API limits
+- **Cons**: Slower (2-5 minutes for 1 minute audio), requires good CPU
+- **Best for**: Privacy, offline use, no budget
+- **Model sizes**: tiny (fastest) → base → small (recommended) → medium → large (most accurate)
+
+#### Groq API
+- **Pros**: Fastest (5-15 seconds for 1 minute audio), uses Whisper Large V3 (best accuracy)
+- **Cons**: Requires API key, rate limits on free tier
+- **Best for**: Speed, best accuracy, batch processing
+- **Cost**: Free tier available at [console.groq.com](https://console.groq.com)
+
+#### OpenAI API
+- **Pros**: Fast, reliable, official Whisper API
+- **Cons**: Requires API key, costs $0.006/minute of audio
+- **Best for**: Production use, reliability
+- **Cost**: Pay-per-use at [platform.openai.com](https://platform.openai.com)
+
+**Recommendation**: Try **Groq API** first (free & fastest), fall back to **Local** if you hit rate limits.
 
 ## Troubleshooting
 
