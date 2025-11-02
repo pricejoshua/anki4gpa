@@ -5,3 +5,7 @@ python-docx>=1.0.0
 Pillow>=10.0.0
 genanki>=0.13.0
 requests>=2.31.0
+
+# Optional: For API-based Whisper (faster alternatives to local processing)
+groq>=0.4.0
+openai>=1.0.0

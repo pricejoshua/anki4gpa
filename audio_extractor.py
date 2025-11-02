@@ -1,11 +1,11 @@
 """
 Audio extraction using Whisper AI
 Based on ExtractAudioUpdated.py - transcribes audio and extracts numbered vocabulary clips
+Supports: Local (faster-whisper), Groq API, OpenAI API
 """
 
 import os
 import re
-from faster_whisper import WhisperModel
 from pydub import AudioSegment
 
 
@@ -59,17 +59,131 @@ def detect_number_at(words, i):
     return None, 0
 
 
-def extract_audio_clips(input_file, output_dir, model_size="medium", buffer_ms=400,
-                       use_vad=False, progress_callback=None, debug=False):
+def transcribe_with_local_whisper(audio_path, model_size="small", use_vad=False):
+    """Transcribe using local faster-whisper model"""
+    from faster_whisper import WhisperModel
+
+    model = WhisperModel(model_size, device="cpu", compute_type="int8")
+    segments, info = model.transcribe(
+        audio_path,
+        word_timestamps=True,
+        vad_filter=use_vad,
+        language="en"
+    )
+
+    # Convert to list and extract words
+    segments_list = list(segments)
+    words = []
+    full_transcription = []
+
+    for seg in segments_list:
+        if hasattr(seg, 'text'):
+            full_transcription.append(seg.text)
+
+        if hasattr(seg, 'words') and seg.words:
+            for w in seg.words:
+                words.append({
+                    'start': w.start,
+                    'end': w.end,
+                    'raw': w.word,
+                    'norm': norm_token(w.word)
+                })
+
+    return words, ' '.join(full_transcription), {
+        'language': getattr(info, 'language', 'en'),
+        'duration': getattr(info, 'duration', 0),
+        'segments': len(segments_list)
+    }
+
+
+def transcribe_with_groq(audio_path, api_key=None):
+    """Transcribe using Groq Whisper API"""
+    from groq import Groq
+
+    if not api_key:
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError("GROQ_API_KEY not found. Set it as environment variable or pass as parameter.")
+
+    client = Groq(api_key=api_key)
+
+    with open(audio_path, "rb") as audio_file:
+        transcription = client.audio.transcriptions.create(
+            model="whisper-large-v3",
+            file=audio_file,
+            response_format="verbose_json",
+            timestamp_granularities=["word"]
+        )
+
+    # Extract words with timestamps
+    words = []
+    if hasattr(transcription, 'words') and transcription.words:
+        for w in transcription.words:
+            words.append({
+                'start': w.start,
+                'end': w.end,
+                'raw': w.word,
+                'norm': norm_token(w.word)
+            })
+
+    return words, transcription.text, {
+        'language': getattr(transcription, 'language', 'en'),
+        'duration': getattr(transcription, 'duration', 0),
+        'segments': len(words)
+    }
+
+
+def transcribe_with_openai(audio_path, api_key=None):
+    """Transcribe using OpenAI Whisper API"""
+    from openai import OpenAI
+
+    if not api_key:
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY not found. Set it as environment variable or pass as parameter.")
+
+    client = OpenAI(api_key=api_key)
+
+    with open(audio_path, "rb") as audio_file:
+        transcription = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file,
+            response_format="verbose_json",
+            timestamp_granularities=["word"]
+        )
+
+    # Extract words with timestamps
+    words = []
+    if hasattr(transcription, 'words') and transcription.words:
+        for w in transcription.words:
+            words.append({
+                'start': w.start,
+                'end': w.end,
+                'raw': w.word,
+                'norm': norm_token(w.word)
+            })
+
+    return words, transcription.text, {
+        'language': getattr(transcription, 'language', 'en'),
+        'duration': getattr(transcription, 'duration', 0),
+        'segments': len(words)
+    }
+
+
+def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=400,
+                       use_vad=False, api_type="local", api_key=None,
+                       progress_callback=None, debug=False):
     """
     Extract numbered audio clips using Whisper transcription.
 
     Args:
         input_file: Path to input audio file
         output_dir: Directory to save extracted clips
-        model_size: Whisper model size (tiny, base, small, medium, large)
+        model_size: Whisper model size (tiny, base, small, medium, large) - only for local
         buffer_ms: Buffer time in milliseconds to add before/after each clip
-        use_vad: Use Voice Activity Detection filter
+        use_vad: Use Voice Activity Detection filter - only for local
+        api_type: "local" (faster-whisper), "groq" (Groq API), or "openai" (OpenAI API)
+        api_key: API key for Groq/OpenAI (if not set in environment)
         progress_callback: Optional callback(percent, message)
         debug: Return detailed debug information
 
@@ -85,14 +199,15 @@ def extract_audio_clips(input_file, output_dir, model_size="medium", buffer_ms=4
     # Load audio
     audio = AudioSegment.from_file(input_file)
 
-    if progress_callback:
-        progress_callback(20, "Loading Whisper model...")
+    # Convert to WAV for better compatibility
+    import tempfile
+    temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+    temp_wav_path = temp_wav.name
+    temp_wav.close()
+    audio.export(temp_wav_path, format='wav')
 
-    # Load Whisper model
-    model = WhisperModel(model_size, device="cpu", compute_type="int8")
-
     if progress_callback:
-        progress_callback(30, "Transcribing audio...")
+        progress_callback(30, f"Transcribing audio with {api_type.upper()} Whisper...")
 
     # Detailed debug info
     debug_info = {
@@ -101,65 +216,33 @@ def extract_audio_clips(input_file, output_dir, model_size="medium", buffer_ms=4
         'first_20_words': [],
         'detected_numbers': [],
         'whisper_info': {},
-        'segment_count': 0,
         'errors': [],
-        'audio_duration': len(audio) / 1000.0,  # Convert to seconds
-        'audio_format': str(audio),
+        'audio_duration': len(audio) / 1000.0,
+        'api_type': api_type
     }
 
     try:
-        # Transcribe with Whisper
-        segments, info = model.transcribe(
-            input_file,
-            word_timestamps=True,
-            vad_filter=use_vad,
-            language="en"
-        )
+        # Transcribe based on API type
+        if api_type == "local":
+            words, transcription, info = transcribe_with_local_whisper(
+                temp_wav_path,
+                model_size=model_size,
+                use_vad=use_vad
+            )
+        elif api_type == "groq":
+            words, transcription, info = transcribe_with_groq(temp_wav_path, api_key=api_key)
+        elif api_type == "openai":
+            words, transcription, info = transcribe_with_openai(temp_wav_path, api_key=api_key)
+        else:
+            raise ValueError(f"Invalid api_type: {api_type}. Must be 'local', 'groq', or 'openai'")
 
-        # Capture info object details
-        debug_info['whisper_info'] = {
-            'language': getattr(info, 'language', 'unknown'),
-            'language_probability': getattr(info, 'language_probability', 0),
-            'duration': getattr(info, 'duration', 0),
-            'all_language_probs': getattr(info, 'all_language_probs', None)
-        }
-
-        # Convert generator to list and count segments
-        segments_list = list(segments)
-        debug_info['segment_count'] = len(segments_list)
+        debug_info['whisper_info'] = info
+        debug_info['total_words'] = len(words)
+        debug_info['transcription'] = transcription
+        debug_info['first_20_words'] = [f"{w['raw']} (norm: {w['norm']})" for w in words[:20]]
 
         if progress_callback:
-            progress_callback(40, f"Found {len(segments_list)} segments...")
-
-        # Flatten words from all segments
-        words = []
-        full_transcription = []
-
-        for idx, seg in enumerate(segments_list):
-            try:
-                seg_text = seg.text if hasattr(seg, 'text') else ""
-                full_transcription.append(seg_text)
-
-                # Check if segment has words attribute
-                if not hasattr(seg, 'words'):
-                    debug_info['errors'].append(f"Segment {idx} has no 'words' attribute")
-                    continue
-
-                seg_words = list(seg.words) if seg.words else []
-
-                for w in seg_words:
-                    words.append({
-                        'start': w.start,
-                        'end': w.end,
-                        'raw': w.word,
-                        'norm': norm_token(w.word)
-                    })
-            except Exception as e:
-                debug_info['errors'].append(f"Error processing segment {idx}: {str(e)}")
-
-        debug_info['total_words'] = len(words)
-        debug_info['transcription'] = ' '.join(full_transcription)
-        debug_info['first_20_words'] = [f"{w['raw']} (norm: {w['norm']})" for w in words[:20]]
+            progress_callback(40, f"Found {len(words)} words...")
 
     except Exception as e:
         debug_info['errors'].append(f"Transcription error: {str(e)}")
@@ -168,6 +251,11 @@ def extract_audio_clips(input_file, output_dir, model_size="medium", buffer_ms=4
         words = []
 
     if not words:
+        # Clean up temporary WAV file
+        try:
+            os.unlink(temp_wav_path)
+        except:
+            pass
         return (0, debug_info) if debug else 0
 
     if progress_callback:
@@ -226,6 +314,12 @@ def extract_audio_clips(input_file, output_dir, model_size="medium", buffer_ms=4
     if progress_callback:
         progress_callback(100, f"Extracted {saved} clips!")
 
+    # Clean up temporary WAV file
+    try:
+        os.unlink(temp_wav_path)
+    except:
+        pass
+
     return (saved, debug_info) if debug else saved
 
 
@@ -233,24 +327,53 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 3:
-        print("Usage: python audio_extractor.py <input_audio> <output_folder> [model_size] [buffer_ms]")
-        print("\nModel sizes: tiny, base, small, medium, large")
-        print("Default model: small")
-        print("Default buffer: 400ms")
-        print("\nExample:")
-        print("  python audio_extractor.py recording.aac output/ small 400")
+        print("Usage: python audio_extractor.py <input_audio> <output_folder> [options]")
+        print("\nOptions:")
+        print("  --api <local|groq|openai>  Whisper API to use (default: local)")
+        print("  --model <size>             Model size for local: tiny/base/small/medium/large (default: small)")
+        print("  --buffer <ms>              Buffer time in milliseconds (default: 400)")
+        print("  --api-key <key>            API key for groq/openai (or set GROQ_API_KEY/OPENAI_API_KEY env var)")
+        print("\nExamples:")
+        print("  # Local (faster-whisper)")
+        print("  python audio_extractor.py recording.aac output/ --model small")
+        print("\n  # Groq API (fastest, requires API key)")
+        print("  python audio_extractor.py recording.aac output/ --api groq --api-key YOUR_KEY")
+        print("\n  # OpenAI API")
+        print("  python audio_extractor.py recording.aac output/ --api openai")
         sys.exit(1)
 
     input_file = sys.argv[1]
     output_dir = sys.argv[2]
-    model_size = sys.argv[3] if len(sys.argv) > 3 else "small"
-    buffer_ms = int(sys.argv[4]) if len(sys.argv) > 4 else 400
+
+    # Parse optional arguments
+    api_type = "local"
+    model_size = "small"
+    buffer_ms = 400
+    api_key = None
+
+    i = 3
+    while i < len(sys.argv):
+        if sys.argv[i] == "--api" and i + 1 < len(sys.argv):
+            api_type = sys.argv[i + 1]
+            i += 2
+        elif sys.argv[i] == "--model" and i + 1 < len(sys.argv):
+            model_size = sys.argv[i + 1]
+            i += 2
+        elif sys.argv[i] == "--buffer" and i + 1 < len(sys.argv):
+            buffer_ms = int(sys.argv[i + 1])
+            i += 2
+        elif sys.argv[i] == "--api-key" and i + 1 < len(sys.argv):
+            api_key = sys.argv[i + 1]
+            i += 2
+        else:
+            i += 1
 
     print(f"Input file: {input_file}")
     print(f"Output folder: {output_dir}")
-    print(f"Whisper model: {model_size}")
+    print(f"API type: {api_type}")
+    if api_type == "local":
+        print(f"Whisper model: {model_size}")
     print(f"Buffer: {buffer_ms}ms")
-    print(f"VAD filter: False")
     print("-" * 50)
 
     def progress(percent, message):
@@ -262,6 +385,8 @@ if __name__ == "__main__":
         model_size=model_size,
         buffer_ms=buffer_ms,
         use_vad=False,
+        api_type=api_type,
+        api_key=api_key,
         progress_callback=progress,
         debug=True
     )
@@ -269,14 +394,12 @@ if __name__ == "__main__":
     print("\n" + "=" * 50)
     print("DEBUG INFORMATION")
     print("=" * 50)
+    print(f"API Type: {debug_info['api_type']}")
     print(f"Audio duration: {debug_info['audio_duration']:.2f} seconds")
-    print(f"Audio format: {debug_info['audio_format']}")
     print(f"\nWhisper Info:")
-    print(f"  Language detected: {debug_info['whisper_info']['language']}")
-    print(f"  Language probability: {debug_info['whisper_info']['language_probability']:.2f}")
-    print(f"  Duration: {debug_info['whisper_info']['duration']:.2f}s")
-    print(f"\nSegments found: {debug_info['segment_count']}")
-    print(f"Total words transcribed: {debug_info['total_words']}")
+    print(f"  Language detected: {debug_info['whisper_info'].get('language', 'unknown')}")
+    print(f"  Duration: {debug_info['whisper_info'].get('duration', 0):.2f}s")
+    print(f"\nTotal words transcribed: {debug_info['total_words']}")
     print(f"Detected numbers: {len(debug_info['detected_numbers'])}")
 
     if debug_info['errors']:
