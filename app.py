@@ -8,6 +8,8 @@ import os
 import re
 import shutil
 import tempfile
+import zipfile
+from io import BytesIO
 
 # Import our custom modules
 from image_extractor import extract_numbered_images
@@ -112,29 +114,51 @@ with tab1:
 with tab2:
     st.header("Extract Audio Clips")
     st.markdown("Upload an audio file (MP3/AAC/M4A) to extract numbered vocabulary clips")
+    with st.popover("Settings"):
 
-    col1, col2 = st.columns([2, 1])
-
-    with col1:
-        audio_file = st.file_uploader(
-            "Upload Audio File",
-            type=['mp3', 'aac', 'm4a', 'wav'],
-            key='audio'
+        # API Type Selection
+        api_type = st.selectbox(
+            "Whisper API",
+            ["local", "groq", "openai"],
+            format_func=lambda x: {
+                "local": "Local (faster-whisper)",
+                "groq": "Groq API (fastest)",
+                "openai": "OpenAI API"
+            }[x],
+            help="Choose which Whisper API to use for transcription"
         )
 
-    with col2:
-        st.subheader("Settings")
-        model_size = st.selectbox("Whisper Model", ["tiny", "base", "small", "medium", "large"], index=2)
+        # Model size only for local
+        if api_type == "local":
+            model_size = st.selectbox("Model Size", ["tiny", "base", "small", "medium", "large"], index=2)
+            use_vad = st.checkbox("Use VAD Filter", value=False, help="Voice Activity Detection - disable if getting 0 words transcribed")
+        else:
+            model_size = "small"  # Default, not used for API
+            use_vad = False
+            api_key = st.text_input(
+                f"{api_type.upper()} API Key",
+                type="password",
+                help=f"Enter your {api_type.upper()} API key or set {api_type.upper()}_API_KEY environment variable"
+            )
+
         buffer_ms = st.number_input("Buffer (ms)", min_value=0, max_value=1000, value=400, step=50)
-        use_vad = st.checkbox("Use VAD Filter", value=False, help="Voice Activity Detection - disable if getting 0 words transcribed")
         debug_mode = st.checkbox("Show Debug Info", value=True, help="Display transcription details for troubleshooting")
+        
+
+    audio_file = st.file_uploader(
+        "Upload Audio File",
+        type=['mp3', 'aac', 'm4a', 'wav'],
+        key='audio'
+    )
+
 
     if st.button("Extract Audio Clips", key='extract_audio_btn'):
         if audio_file is None:
             st.error("Please upload an audio file first")
         else:
             try:
-                with st.spinner(f"Processing audio with Whisper {model_size} model... This may take a few minutes."):
+                api_label = {"local": f"Local Whisper ({model_size})", "groq": "Groq API", "openai": "OpenAI API"}[api_type]
+                with st.spinner(f"Processing audio with {api_label}... This may take a few minutes."):
                     # Create temp directory for audio
                     if st.session_state.temp_audio:
                         shutil.rmtree(st.session_state.temp_audio, ignore_errors=True)
@@ -149,12 +173,17 @@ with tab2:
                     progress_bar = st.progress(0)
                     status_text = st.empty()
 
+                    # Get API key if using API
+                    current_api_key = api_key if api_type != "local" else None
+
                     result = extract_audio_clips(
                         temp_audio.name,
                         st.session_state.temp_audio,
                         model_size=model_size,
                         buffer_ms=buffer_ms,
                         use_vad=use_vad,
+                        api_type=api_type,
+                        api_key=current_api_key,
                         progress_callback=lambda p, s: (progress_bar.progress(p), status_text.text(s)),
                         debug=debug_mode
                     )
@@ -185,13 +214,12 @@ with tab2:
                     # Display debug info
                     if debug_mode and debug_info:
                         with st.expander("Debug Information", expanded=(clip_count == 0)):
+                            st.write(f"**API Type:** {debug_info.get('api_type', 'unknown').upper()}")
                             st.write(f"**Audio Duration:** {debug_info.get('audio_duration', 0):.2f} seconds")
-                            st.write(f"**Audio Format:** {debug_info.get('audio_format', 'unknown')}")
 
                             st.write("**Whisper Info:**")
                             whisper_info = debug_info.get('whisper_info', {})
                             st.write(f"  - Language detected: {whisper_info.get('language', 'unknown')}")
-                            st.write(f"  - Language probability: {whisper_info.get('language_probability', 0):.2f}")
                             st.write(f"  - Duration: {whisper_info.get('duration', 0):.2f}s")
 
                             st.write(f"**Segments found:** {debug_info.get('segment_count', 0)}")
@@ -226,6 +254,26 @@ with tab2:
     # Display extracted audio clips
     if st.session_state.audio_files:
         st.subheader(f"Extracted Audio Clips ({len(st.session_state.audio_files)})")
+
+        # Create ZIP file download button
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for audio_file_name in st.session_state.audio_files:
+                audio_path = os.path.join(st.session_state.temp_audio, audio_file_name)
+                zip_file.write(audio_path, audio_file_name)
+        zip_buffer.seek(0)
+
+        st.download_button(
+            label=f"📥 Download All Audio Files ({len(st.session_state.audio_files)} clips)",
+            data=zip_buffer,
+            file_name="audio_clips.zip",
+            mime="application/zip",
+            key='download_audio_zip'
+        )
+
+        st.markdown("---")
+
+        # Display audio clips
         for audio_file_name in st.session_state.audio_files[:10]:  # Show first 10
             audio_path = os.path.join(st.session_state.temp_audio, audio_file_name)
             col1, col2 = st.columns([1, 3])
@@ -303,11 +351,65 @@ with tab4:
     st.header("Export Anki Deck")
     st.markdown("Generate an .apkg file for direct import into Anki")
 
+    # Card Style Selection
+    st.subheader("Card Style")
+    card_style = st.radio(
+        "Choose card template:",
+        options=["audio_to_image", "audio_only", "image_only", "both_sides"],
+        index=0,
+        format_func=lambda x: {
+            "audio_to_image": "Two Cards: Audio→(Image+Sound) & Image→(Image+Sound) (Recommended)",
+            "audio_only": "One Card: Audio→(Image+Sound)",
+            "image_only": "One Card: Image→(Image+Sound)",
+            "both_sides": "One Card: Audio + Image on front"
+        }[x],
+        help="Determines how many cards are created and what appears on each side"
+    )
+
+    # Show preview of selected style
+    with st.expander("ℹ️ Card Style Preview"):
+        if card_style == "audio_to_image":
+            st.markdown("""
+            **Creates 2 cards per item:**
+            - Card 1: 🔊 Audio → (� Audio + �🖼️ Image)
+            - Card 2: 🖼️ Image → (🔊 Audio + 🖼️ Image)
+
+            Best for active recall and comprehensive learning!
+            The answer side always shows both audio and image.
+            """)
+        elif card_style == "audio_only":
+            st.markdown("""
+            **Creates 1 card per item:**
+            - Front: 🔊 Audio
+            - Back: � Audio + �🖼️ Image
+
+            Focus on audio recognition with complete feedback.
+            """)
+        elif card_style == "image_only":
+            st.markdown("""
+            **Creates 1 card per item:**
+            - Front: 🖼️ Image
+            - Back: 🔊 Audio + 🖼️ Image
+
+            Focus on visual recognition with complete feedback.
+            """)
+        else:  # both_sides
+            st.markdown("""
+            **Creates 1 card per item:**
+            - Front: 🔊 Audio + 🖼️ Image
+            - Back: Card number
+
+            Shows both clues on front side for review.
+            """)
+
+    st.markdown("---")
+
+    # Deck Settings
+    st.subheader("Deck Settings")
     col1, col2 = st.columns(2)
 
     with col1:
         deck_name = st.text_input("Deck Name", value="My Vocabulary Deck")
-        model_name = st.text_input("Note Type", value="Vocabulary")
 
     with col2:
         tags = st.text_input("Tags (comma-separated)", value="auto,vocab")
@@ -319,21 +421,36 @@ with tab4:
         else:
             try:
                 with st.spinner("Creating Anki deck..."):
-                    # Create deck
+                    # Create deck with appropriate note type name
+                    if card_style == "audio_to_image":
+                        model_name = "Vocabulary (Audio/Image → Both)"
+                    elif card_style == "audio_only":
+                        model_name = "Vocabulary (Audio → Both)"
+                    elif card_style == "image_only":
+                        model_name = "Vocabulary (Image → Both)"
+                    else:  # both_sides
+                        model_name = "Vocabulary (Both on Front)"
+                    
                     apkg_path = create_anki_deck(
                         st.session_state.paired_files,
                         st.session_state.temp_final,
                         deck_name,
                         model_name,
                         tags.split(','),
-                        unit_session
+                        unit_session,
+                        card_style=card_style
                     )
 
                     # Read file for download
                     with open(apkg_path, 'rb') as f:
                         apkg_data = f.read()
 
-                    st.success("Deck created successfully!")
+                    # Calculate total cards based on style
+                    if card_style == "audio_to_image":
+                        total_cards = len(st.session_state.paired_files) * 2
+                        st.success(f"Deck created successfully! {total_cards} cards ({len(st.session_state.paired_files)} items × 2 cards each)")
+                    else:
+                        st.success(f"Deck created successfully! {len(st.session_state.paired_files)} cards")
 
                     # Download button
                     st.download_button(
