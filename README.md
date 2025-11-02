@@ -188,6 +188,22 @@ To process multiple files:
 
 ## Deployment
 
+### Hugging Face Spaces (Recommended)
+
+This app is optimized for deployment on Hugging Face Spaces using Docker:
+
+1. Create a new Space at [huggingface.co/new-space](https://huggingface.co/new-space)
+2. Select **Docker** as the SDK and **Streamlit** as the template
+3. Connect your GitHub repository or upload the files
+4. The Dockerfile and .dockerignore are already configured
+5. Your app will be available at `https://huggingface.co/spaces/YOUR_USERNAME/SPACE_NAME`
+
+**Benefits:**
+- Free GPU support available for faster Whisper processing
+- Better performance than Streamlit Cloud's free tier
+- Easy sharing and collaboration
+- Persistent storage options
+
 ### Streamlit Cloud
 
 1. Push this repo to GitHub
