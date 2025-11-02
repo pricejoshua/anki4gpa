@@ -5,17 +5,27 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
-WORKDIR /app
+# Set up a new user named "user" with user ID 1000
+RUN useradd -m -u 1000 user
+
+# Set home to the user's home directory
+ENV HOME=/home/user \
+    PATH=/home/user/.local/bin:$PATH
+
+# Set the working directory to the user's home directory
+WORKDIR $HOME/app
 
 # Copy requirements first for better caching
-COPY requirements.txt .
+COPY --chown=user requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
-COPY . .
+COPY --chown=user . .
+
+# Switch to the "user" user
+USER user
 
 # Expose Streamlit default port
 EXPOSE 7860
