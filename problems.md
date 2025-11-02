@@ -1,0 +1,1 @@
+extract_numbered_images, extract_audio_clips is not defined.
