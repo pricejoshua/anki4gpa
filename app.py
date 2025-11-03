@@ -29,6 +29,10 @@ st.set_page_config(
     layout="wide"
 )
 
+# Log configuration for debugging (check browser console)
+print(f"[CONFIG] XSRF Protection: {st.get_option('server.enableXsrfProtection')}")
+print(f"[CONFIG] CORS Enabled: {st.get_option('server.enableCORS')}")
+
 # Initialize session state
 if 'temp_images' not in st.session_state:
     st.session_state.temp_images = None
