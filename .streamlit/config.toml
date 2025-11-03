@@ -1,0 +1,11 @@
+[server]
+maxUploadSize = 200
+enableXsrfProtection = true
+enableCORS = true
+
+[browser]
+gatherUsageStats = false
+
+[runner]
+# Increase timeout for Whisper processing
+fastReruns = false
