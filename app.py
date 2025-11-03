@@ -488,6 +488,7 @@ st.markdown("---")
 st.markdown(
     """
     <div style='text-align: center; color: #555; padding: 20px 0;'>
+        <p>Made with ❤️ by Brennan and Price</p>
         <p>Contact <a href='mailto:joshuajangprice@gmail.com' style='color: #1f77b4; text-decoration: none;'>joshuajangprice@gmail.com</a> for any bugs or issues</p>
     </div>
     """,
