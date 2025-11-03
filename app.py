@@ -478,3 +478,14 @@ with st.sidebar:
         st.session_state.paired_files = []
         st.success("All data cleared!")
         st.rerun()
+
+# Footer
+st.markdown("---")
+st.markdown(
+    """
+    <div style='text-align: center; color: #555; padding: 20px 0;'>
+        <p>Contact <a href='mailto:joshuajangprice@gmail.com' style='color: #1f77b4; text-decoration: none;'>joshuajangprice@gmail.com</a> for any bugs or issues</p>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
