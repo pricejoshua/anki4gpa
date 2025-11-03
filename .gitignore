@@ -23,8 +23,8 @@ wheels/
 .installed.cfg
 *.egg
 
-# Streamlit
-.streamlit/
+# Streamlit (ignore secrets but keep config)
+.streamlit/secrets.toml
 
 # Temporary files
 *.tmp
