@@ -29,6 +29,32 @@ st.set_page_config(
     layout="wide"
 )
 
+# Fix drag-and-drop for iframe embedding
+st.markdown("""
+    <script>
+        // Fix drag and drop in iframes
+        window.addEventListener('dragover', function(e) {
+            e.preventDefault();
+        });
+        window.addEventListener('drop', function(e) {
+            e.preventDefault();
+        });
+    </script>
+    <style>
+        /* Ensure file uploader is visible and functional */
+        [data-testid="stFileUploader"] {
+            border: 2px dashed #ccc;
+            border-radius: 5px;
+            padding: 20px;
+            text-align: center;
+        }
+        [data-testid="stFileUploader"]:hover {
+            border-color: #888;
+            background-color: #f9f9f9;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # Log configuration for debugging (check browser console)
 print(f"[CONFIG] XSRF Protection: {st.get_option('server.enableXsrfProtection')}")
 print(f"[CONFIG] CORS Enabled: {st.get_option('server.enableCORS')}")
@@ -67,7 +93,12 @@ with tab1:
     st.header("Extract Images from Word Document")
     st.markdown("Upload a .docx file with numbered paragraphs and images")
 
-    docx_file = st.file_uploader("Upload Word Document (.docx)", type=['docx'], key='docx')
+    docx_file = st.file_uploader(
+        "Upload Word Document (.docx)",
+        type=['docx'],
+        key='docx',
+        help="Drag and drop a file here, or click 'Browse files' to select"
+    )
 
     if st.button("Extract Images", key='extract_images_btn'):
         if docx_file is None:
@@ -152,7 +183,8 @@ with tab2:
     audio_file = st.file_uploader(
         "Upload Audio File",
         type=['mp3', 'aac', 'm4a', 'wav'],
-        key='audio'
+        key='audio',
+        help="Drag and drop a file here, or click 'Browse files' to select"
     )
 
 
@@ -466,10 +498,97 @@ with tab4:
             except Exception as e:
                 st.error(f"Error creating deck: {str(e)}")
 
-# Add cleanup button in sidebar
+# Sidebar with documentation and utilities
 with st.sidebar:
-    st.header("Utilities")
-    if st.button("Clear All Data"):
+    st.header("📖 How to Use")
+
+    with st.expander("🎯 Quick Start Guide", expanded=False):
+        st.markdown("""
+        ### Step-by-Step Instructions
+
+        **1️⃣ Extract Images**
+        - Upload a `.docx` Word document containing numbered paragraphs and images
+        - Click "Extract Images" to extract all images
+        - Images will be automatically numbered based on the document structure
+
+        **2️⃣ Extract Audio**
+        - Upload an audio file (MP3, AAC, M4A, or WAV)
+        - Configure Whisper API settings (Local, Groq, or OpenAI)
+        - Click "Extract Audio Clips" to transcribe and extract numbered vocabulary
+        - The system detects spoken numbers (e.g., "one", "two", "number one")
+
+        **3️⃣ Pair Files**
+        - Click "Pair Files" to match audio clips with images by number
+        - Review matched pairs and check for any warnings
+
+        **4️⃣ Export Deck**
+        - Choose your preferred card style
+        - Set deck name and tags
+        - Click "Generate Anki Deck" and download the .apkg file
+        - Import the .apkg file into Anki
+        """)
+
+    with st.expander("⚙️ Settings & Tips", expanded=False):
+        st.markdown("""
+        ### Whisper API Options
+
+        **Local (faster-whisper)**
+        - Runs on your machine
+        - No API key needed
+        - Slower but free
+        - Adjust model size for speed/accuracy tradeoff
+
+        **Groq API** (Recommended)
+        - Fastest option
+        - Requires API key
+        - Very accurate
+
+        **OpenAI API**
+        - High quality
+        - Requires API key and credits
+        - Good for complex audio
+
+        ### Audio Format Tips
+        - Speak numbers clearly: "one", "two", "three"
+        - Or say "number one", "number two", etc.
+        - Pause between items for best results
+        - Adjust buffer time (default 400ms) if clips are cut off
+
+        ### Card Styles
+        - **Audio→Image (Recommended)**: Creates 2 cards for maximum practice
+        - **Audio Only**: Focus on listening comprehension
+        - **Image Only**: Focus on visual recognition
+        - **Both Sides**: Review mode with everything visible
+        """)
+
+    with st.expander("🐛 Troubleshooting", expanded=False):
+        st.markdown("""
+        ### Common Issues
+
+        **No audio clips extracted?**
+        - Enable "Show Debug Info" to see what was transcribed
+        - Try disabling "VAD Filter" if using local Whisper
+        - Check if numbers are spoken clearly in the audio
+        - Try a different Whisper API (Groq is most reliable)
+
+        **Images not extracting?**
+        - Ensure document is in .docx format (not .doc)
+        - Check that images are properly embedded in Word
+
+        **File upload not working?**
+        - Try using the "Browse files" button instead of drag-and-drop
+        - If embedded in iframe, drag-and-drop may not work
+        - Check file size is under 200MB
+
+        **Cards not importing into Anki?**
+        - Make sure you're using Anki Desktop (not AnkiWeb)
+        - Try different deck/note type names if conflicts exist
+        """)
+
+    st.markdown("---")
+
+    st.header("🛠️ Utilities")
+    if st.button("Clear All Data", help="Remove all extracted files and reset the session"):
         for temp_dir in [st.session_state.temp_images, st.session_state.temp_audio, st.session_state.temp_final]:
             if temp_dir and os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir, ignore_errors=True)
@@ -482,6 +601,28 @@ with st.sidebar:
         st.session_state.paired_files = []
         st.success("All data cleared!")
         st.rerun()
+
+    st.markdown("---")
+
+    st.header("ℹ️ About")
+    st.markdown("""
+    **Anki Deck Creator** automatically generates Anki flashcard decks from Word documents and audio files.
+
+    Perfect for language learning, vocabulary building, and spaced repetition study.
+
+    Version 1.0
+    """)
+
+    st.markdown("---")
+
+    # Current session info
+    st.header("📊 Session Info")
+    if st.session_state.image_files:
+        st.info(f"🖼️ {len(st.session_state.image_files)} images extracted")
+    if st.session_state.audio_files:
+        st.info(f"🔊 {len(st.session_state.audio_files)} audio clips extracted")
+    if st.session_state.paired_files:
+        st.success(f"✅ {len(st.session_state.paired_files)} pairs ready")
 
 # Footer
 st.markdown("---")

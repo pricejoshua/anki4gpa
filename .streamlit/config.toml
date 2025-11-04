@@ -2,6 +2,8 @@
 maxUploadSize = 200
 enableXsrfProtection = false
 enableCORS = false
+# Allow iframe embedding
+headless = true
 
 [browser]
 gatherUsageStats = false
@@ -9,3 +11,7 @@ gatherUsageStats = false
 [runner]
 # Increase timeout for Whisper processing
 fastReruns = false
+
+[client]
+# Improve iframe compatibility
+toolbarMode = "minimal"
