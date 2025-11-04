@@ -43,6 +43,22 @@ A Streamlit web application that automatically creates Anki flashcard decks from
 - Should contain spoken numbers followed by vocabulary words
 - Format: "Number one [word]... Number two [word]..."
 
+## Embedding in iframes
+
+If you're embedding this app in an iframe on your website, make sure to include these attributes for full drag-and-drop functionality:
+
+```html
+<iframe
+    src="YOUR_HF_SPACE_URL"
+    width="100%"
+    height="800"
+    frameborder="0"
+    allow="clipboard-read; clipboard-write"
+></iframe>
+```
+
+**Note**: Due to browser security restrictions, drag-and-drop may not work in all iframe configurations. Users can always use the "Browse files" button as an alternative.
+
 ## License
 
 MIT License - Feel free to modify and distribute
