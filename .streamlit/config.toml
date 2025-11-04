@@ -2,6 +2,8 @@
 maxUploadSize = 200
 enableXsrfProtection = false
 enableCORS = false
+# Allow iframe embedding
+headless = true
 
 [browser]
 gatherUsageStats = false
