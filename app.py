@@ -29,32 +29,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Fix drag-and-drop for iframe embedding
-st.markdown("""
-    <script>
-        // Fix drag and drop in iframes
-        window.addEventListener('dragover', function(e) {
-            e.preventDefault();
-        });
-        window.addEventListener('drop', function(e) {
-            e.preventDefault();
-        });
-    </script>
-    <style>
-        /* Ensure file uploader is visible and functional */
-        [data-testid="stFileUploader"] {
-            border: 2px dashed #ccc;
-            border-radius: 5px;
-            padding: 20px;
-            text-align: center;
-        }
-        [data-testid="stFileUploader"]:hover {
-            border-color: #888;
-            background-color: #f9f9f9;
-        }
-    </style>
-""", unsafe_allow_html=True)
-
 # Log configuration for debugging (check browser console)
 print(f"[CONFIG] XSRF Protection: {st.get_option('server.enableXsrfProtection')}")
 print(f"[CONFIG] CORS Enabled: {st.get_option('server.enableCORS')}")
@@ -96,8 +70,7 @@ with tab1:
     docx_file = st.file_uploader(
         "Upload Word Document (.docx)",
         type=['docx'],
-        key='docx',
-        help="Drag and drop a file here, or click 'Browse files' to select"
+        key='docx'
     )
 
     if st.button("Extract Images", key='extract_images_btn'):
@@ -183,8 +156,7 @@ with tab2:
     audio_file = st.file_uploader(
         "Upload Audio File",
         type=['mp3', 'aac', 'm4a', 'wav'],
-        key='audio',
-        help="Drag and drop a file here, or click 'Browse files' to select"
+        key='audio'
     )
 
 
@@ -528,7 +500,7 @@ with st.sidebar:
         - Import the .apkg file into Anki
         """)
 
-    with st.expander("⚙️ Settings & Tips", expanded=False):
+    with st.expander("⚙️ Advanced Settings & Tips", expanded=False):
         st.markdown("""
         ### Whisper API Options
 
@@ -576,9 +548,9 @@ with st.sidebar:
         - Check that images are properly embedded in Word
 
         **File upload not working?**
-        - Try using the "Browse files" button instead of drag-and-drop
-        - If embedded in iframe, drag-and-drop may not work
         - Check file size is under 200MB
+        - Ensure your browser allows file uploads
+        - Try refreshing the page
 
         **Cards not importing into Anki?**
         - Make sure you're using Anki Desktop (not AnkiWeb)
