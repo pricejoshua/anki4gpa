@@ -63,6 +63,8 @@ if 'audio_files' not in st.session_state:
     st.session_state.audio_files = []
 if 'paired_files' not in st.session_state:
     st.session_state.paired_files = []
+if 'pending_image_numbers' not in st.session_state:
+    st.session_state.pending_image_numbers = {}
 
 # Header
 st.title("📚 Anki Deck Creator")
@@ -120,20 +122,91 @@ with tab1:
                         key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
                     )
 
+                    # Clear any pending number changes from previous extraction
+                    st.session_state.pending_image_numbers = {}
+
                     st.success(f"Extracted {len(st.session_state.image_files)} images!")
             except Exception as e:
                 st.error(f"Error extracting images: {str(e)}")
 
-    # Display extracted images
+    # Display extracted images with number spinners
     if st.session_state.image_files:
         st.subheader(f"Extracted Images ({len(st.session_state.image_files)})")
+        st.markdown("Adjust the numbers below if needed, then click **Save Changes**")
+
+        # Initialize pending numbers if not set
+        if not st.session_state.pending_image_numbers:
+            for img_file in st.session_state.image_files:
+                current_num = int(m.group()) if (m := re.search(r'\d+', img_file)) else 1
+                st.session_state.pending_image_numbers[img_file] = current_num
+
+        # Display images with number spinners in a grid
         cols = st.columns(4)
         for idx, img_file in enumerate(st.session_state.image_files[:20]):  # Show first 20
             with cols[idx % 4]:
                 img_path = os.path.join(st.session_state.temp_images, img_file)
-                st.image(img_path, caption=img_file, use_container_width=True)
+                st.image(img_path, use_container_width=True)
+
+                # Number spinner for this image
+                current_num = st.session_state.pending_image_numbers.get(img_file, 1)
+                new_num = st.number_input(
+                    f"Number:",
+                    min_value=1,
+                    max_value=999,
+                    value=current_num,
+                    step=1,
+                    key=f"img_num_{img_file}_{idx}",
+                    label_visibility="visible"
+                )
+                st.session_state.pending_image_numbers[img_file] = new_num
+
         if len(st.session_state.image_files) > 20:
             st.info(f"Showing first 20 of {len(st.session_state.image_files)} images")
+
+        st.markdown("---")
+
+        # Save Changes button with validation
+        if st.button("💾 Save Changes", key="save_image_numbers", type="primary"):
+            # Validate: Check for duplicates
+            new_numbers = list(st.session_state.pending_image_numbers.values())
+            if len(new_numbers) != len(set(new_numbers)):
+                # Find duplicates
+                from collections import Counter
+                duplicates = [num for num, count in Counter(new_numbers).items() if count > 1]
+                st.error(f"❌ Duplicate numbers found: {duplicates}. Each image must have a unique number.")
+            else:
+                # All valid, proceed with renaming
+                try:
+                    with st.spinner("Renaming images..."):
+                        rename_list = [
+                            (os.path.join(st.session_state.temp_images, img_file), new_num)
+                            for img_file, new_num in st.session_state.pending_image_numbers.items()
+                        ]
+
+                        from media_editor import batch_rename_media
+                        result = batch_rename_media(rename_list)
+
+                        if result['count_failed'] > 0:
+                            st.error(f"⚠️ Failed to rename {result['count_failed']} file(s)")
+                            for path, error in result['failed']:
+                                st.text(f"  - {os.path.basename(path)}: {error}")
+
+                        # Refresh image file list
+                        st.session_state.image_files = sorted(
+                            [f for f in os.listdir(st.session_state.temp_images) if f.endswith('.png')],
+                            key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
+                        )
+
+                        # Clear pending changes
+                        st.session_state.pending_image_numbers = {}
+
+                        st.success(f"✅ Successfully renamed {result['count_renamed']} image(s)!")
+                        st.rerun()
+
+                except Exception as e:
+                    st.error(f"Error renaming images: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
 
 # ============================================================================
 # TAB 2: EXTRACT AUDIO
@@ -862,6 +935,7 @@ with st.sidebar:
         st.session_state.image_files = []
         st.session_state.audio_files = []
         st.session_state.paired_files = []
+        st.session_state.pending_image_numbers = {}
         st.success("All data cleared!")
         st.rerun()
 
