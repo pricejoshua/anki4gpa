@@ -16,6 +16,10 @@ from image_extractor import extract_numbered_images
 from audio_extractor import extract_audio_clips
 from file_pairer import pair_files
 from deck_creator import create_anki_deck
+from media_editor import (
+    trim_audio_clip, delete_audio_clip, get_audio_duration, rename_audio_clip,
+    delete_image, rename_image, get_image_info, batch_delete_media
+)
 
 
 # ============================================================================
@@ -66,11 +70,12 @@ st.markdown("Create Anki flashcard decks from Word documents and audio files")
 st.markdown("---")
 
 # === TAB SETUP ===
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "1️⃣ Extract Images",
     "2️⃣ Extract Audio",
-    "3️⃣ Pair Files",
-    "4️⃣ Export Deck"
+    "3️⃣ Edit Media",
+    "4️⃣ Pair Files",
+    "5️⃣ Export Deck"
 ])
 
 # ============================================================================
@@ -308,9 +313,266 @@ with tab2:
             st.info(f"Showing first 10 of {len(st.session_state.audio_files)} clips")
 
 # ============================================================================
-# TAB 3: PAIR FILES
+# TAB 3: EDIT MEDIA
 # ============================================================================
 with tab3:
+    st.header("Edit Extracted Media")
+    st.markdown("Review and edit your extracted images and audio clips before pairing")
+
+    # Check if any media has been extracted
+    has_images = bool(st.session_state.image_files)
+    has_audio = bool(st.session_state.audio_files)
+
+    if not has_images and not has_audio:
+        st.info("Extract images and audio first (Tabs 1 & 2)")
+    else:
+        # Create sub-tabs for audio and image editing
+        edit_tab1, edit_tab2 = st.tabs(["🔊 Edit Audio", "🖼️ Edit Images"])
+
+        # ============================================================
+        # AUDIO EDITING SUB-TAB
+        # ============================================================
+        with edit_tab1:
+            if not st.session_state.audio_files:
+                st.info("No audio clips extracted yet. Go to Tab 2 to extract audio.")
+            else:
+                st.subheader(f"Audio Clips ({len(st.session_state.audio_files)})")
+
+                # Batch operations
+                with st.expander("🗑️ Batch Delete Audio Clips"):
+                    st.markdown("Select audio clips to delete:")
+
+                    clips_to_delete = []
+                    cols = st.columns(4)
+                    for idx, audio_file in enumerate(st.session_state.audio_files):
+                        with cols[idx % 4]:
+                            if st.checkbox(audio_file, key=f"delete_audio_{audio_file}"):
+                                clips_to_delete.append(audio_file)
+
+                    if clips_to_delete:
+                        if st.button(f"Delete {len(clips_to_delete)} selected clip(s)", key="batch_delete_audio"):
+                            file_paths = [os.path.join(st.session_state.temp_audio, f) for f in clips_to_delete]
+                            result = batch_delete_media(file_paths)
+
+                            # Update session state
+                            st.session_state.audio_files = sorted(
+                                [f for f in os.listdir(st.session_state.temp_audio) if f.endswith('.mp3')],
+                                key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
+                            )
+
+                            st.success(f"Deleted {result['count_deleted']} audio clip(s)")
+                            if result['count_failed'] > 0:
+                                st.error(f"Failed to delete {result['count_failed']} file(s)")
+                            st.rerun()
+
+                st.markdown("---")
+
+                # Individual audio clip editor
+                st.subheader("Individual Clip Editor")
+
+                # Select clip to edit
+                selected_audio = st.selectbox(
+                    "Select audio clip to edit:",
+                    st.session_state.audio_files,
+                    key="selected_audio_clip"
+                )
+
+                if selected_audio:
+                    audio_path = os.path.join(st.session_state.temp_audio, selected_audio)
+
+                    col1, col2 = st.columns([2, 1])
+
+                    with col1:
+                        st.markdown(f"**File:** `{selected_audio}`")
+                        st.audio(audio_path)
+
+                        # Get duration
+                        try:
+                            duration_ms = get_audio_duration(audio_path)
+                            duration_sec = duration_ms / 1000
+                            st.info(f"Duration: {duration_sec:.2f} seconds ({duration_ms} ms)")
+                        except Exception as e:
+                            st.error(f"Error reading audio: {str(e)}")
+                            duration_ms = 5000  # Default fallback
+
+                    with col2:
+                        st.markdown("**Actions:**")
+
+                        # Rename operation
+                        with st.expander("✏️ Rename"):
+                            new_number = st.number_input(
+                                "New number:",
+                                min_value=1,
+                                value=int(m.group()) if (m := re.search(r'\d+', selected_audio)) else 1,
+                                key=f"rename_audio_{selected_audio}"
+                            )
+                            if st.button("Rename", key=f"rename_btn_audio_{selected_audio}"):
+                                try:
+                                    new_path = rename_audio_clip(audio_path, new_number)
+                                    st.session_state.audio_files = sorted(
+                                        [f for f in os.listdir(st.session_state.temp_audio) if f.endswith('.mp3')],
+                                        key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
+                                    )
+                                    st.success(f"Renamed to {os.path.basename(new_path)}")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error renaming: {str(e)}")
+
+                        # Trim operation
+                        with st.expander("✂️ Trim"):
+                            st.markdown("Adjust clip boundaries:")
+
+                            trim_start = st.number_input(
+                                "Start (ms):",
+                                min_value=0,
+                                max_value=int(duration_ms),
+                                value=0,
+                                step=100,
+                                key=f"trim_start_{selected_audio}"
+                            )
+
+                            trim_end = st.number_input(
+                                "End (ms):",
+                                min_value=0,
+                                max_value=int(duration_ms),
+                                value=int(duration_ms),
+                                step=100,
+                                key=f"trim_end_{selected_audio}"
+                            )
+
+                            new_duration = (trim_end - trim_start) / 1000
+                            st.info(f"New duration: {new_duration:.2f}s")
+
+                            if st.button("Apply Trim", key=f"trim_btn_{selected_audio}"):
+                                try:
+                                    trim_audio_clip(audio_path, trim_start, trim_end)
+                                    st.success(f"Trimmed {selected_audio}")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error trimming: {str(e)}")
+
+                        # Delete operation
+                        if st.button("🗑️ Delete This Clip", key=f"delete_btn_audio_{selected_audio}", type="secondary"):
+                            try:
+                                delete_audio_clip(audio_path)
+                                st.session_state.audio_files = sorted(
+                                    [f for f in os.listdir(st.session_state.temp_audio) if f.endswith('.mp3')],
+                                    key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
+                                )
+                                st.success(f"Deleted {selected_audio}")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error deleting: {str(e)}")
+
+        # ============================================================
+        # IMAGE EDITING SUB-TAB
+        # ============================================================
+        with edit_tab2:
+            if not st.session_state.image_files:
+                st.info("No images extracted yet. Go to Tab 1 to extract images.")
+            else:
+                st.subheader(f"Images ({len(st.session_state.image_files)})")
+
+                # Batch operations
+                with st.expander("🗑️ Batch Delete Images"):
+                    st.markdown("Select images to delete:")
+
+                    images_to_delete = []
+                    cols = st.columns(4)
+                    for idx, img_file in enumerate(st.session_state.image_files):
+                        with cols[idx % 4]:
+                            img_path = os.path.join(st.session_state.temp_images, img_file)
+                            st.image(img_path, use_container_width=True)
+                            if st.checkbox(img_file, key=f"delete_img_{img_file}"):
+                                images_to_delete.append(img_file)
+
+                    if images_to_delete:
+                        if st.button(f"Delete {len(images_to_delete)} selected image(s)", key="batch_delete_images"):
+                            file_paths = [os.path.join(st.session_state.temp_images, f) for f in images_to_delete]
+                            result = batch_delete_media(file_paths)
+
+                            # Update session state
+                            st.session_state.image_files = sorted(
+                                [f for f in os.listdir(st.session_state.temp_images) if f.endswith('.png')],
+                                key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
+                            )
+
+                            st.success(f"Deleted {result['count_deleted']} image(s)")
+                            if result['count_failed'] > 0:
+                                st.error(f"Failed to delete {result['count_failed']} file(s)")
+                            st.rerun()
+
+                st.markdown("---")
+
+                # Individual image editor
+                st.subheader("Individual Image Editor")
+
+                # Select image to edit
+                selected_image = st.selectbox(
+                    "Select image to edit:",
+                    st.session_state.image_files,
+                    key="selected_image"
+                )
+
+                if selected_image:
+                    img_path = os.path.join(st.session_state.temp_images, selected_image)
+
+                    col1, col2 = st.columns([2, 1])
+
+                    with col1:
+                        st.markdown(f"**File:** `{selected_image}`")
+                        st.image(img_path, use_container_width=True)
+
+                        # Get image info
+                        try:
+                            img_info = get_image_info(img_path)
+                            st.info(f"Size: {img_info['size'][0]}x{img_info['size'][1]} | Format: {img_info['format']} | {img_info['file_size_kb']:.1f} KB")
+                        except Exception as e:
+                            st.error(f"Error reading image: {str(e)}")
+
+                    with col2:
+                        st.markdown("**Actions:**")
+
+                        # Rename operation
+                        with st.expander("✏️ Rename"):
+                            new_number = st.number_input(
+                                "New number:",
+                                min_value=1,
+                                value=int(m.group()) if (m := re.search(r'\d+', selected_image)) else 1,
+                                key=f"rename_img_{selected_image}"
+                            )
+                            if st.button("Rename", key=f"rename_btn_img_{selected_image}"):
+                                try:
+                                    new_path = rename_image(img_path, new_number)
+                                    st.session_state.image_files = sorted(
+                                        [f for f in os.listdir(st.session_state.temp_images) if f.endswith('.png')],
+                                        key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
+                                    )
+                                    st.success(f"Renamed to {os.path.basename(new_path)}")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error renaming: {str(e)}")
+
+                        # Delete operation
+                        if st.button("🗑️ Delete This Image", key=f"delete_btn_img_{selected_image}", type="secondary"):
+                            try:
+                                delete_image(img_path)
+                                st.session_state.image_files = sorted(
+                                    [f for f in os.listdir(st.session_state.temp_images) if f.endswith('.png')],
+                                    key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
+                                )
+                                st.success(f"Deleted {selected_image}")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error deleting: {str(e)}")
+
+                st.markdown("---")
+                st.info("💡 Tip: After editing, proceed to Tab 4 to pair your files")
+
+# ============================================================================
+# TAB 4: PAIR FILES
+# ============================================================================
+with tab4:
     st.header("Pair Audio and Images")
     st.markdown("Match audio clips with images by number")
 
@@ -368,9 +630,9 @@ with tab3:
             st.info(f"Showing first 5 of {len(st.session_state.paired_files)} pairs")
 
 # ============================================================================
-# TAB 4: EXPORT ANKI DECK
+# TAB 5: EXPORT ANKI DECK
 # ============================================================================
-with tab4:
+with tab5:
     st.header("Export Anki Deck")
     st.markdown("Generate an .apkg file for direct import into Anki")
 
@@ -504,11 +766,17 @@ with st.sidebar:
         - Click "Extract Audio Clips" to transcribe and extract numbered vocabulary
         - The system detects spoken numbers (e.g., "one", "two", "number one")
 
-        **3️⃣ Pair Files**
+        **3️⃣ Edit Media** (Optional)
+        - Review and edit extracted images and audio clips
+        - **Audio editing**: Trim clips, rename, or delete unwanted audio
+        - **Image editing**: Rename, reorder, or delete images
+        - Perfect for fixing extraction errors or customizing your deck
+
+        **4️⃣ Pair Files**
         - Click "Pair Files" to match audio clips with images by number
         - Review matched pairs and check for any warnings
 
-        **4️⃣ Export Deck**
+        **5️⃣ Export Deck**
         - Choose your preferred card style
         - Set deck name and tags
         - Click "Generate Anki Deck" and download the .apkg file
@@ -546,6 +814,13 @@ with st.sidebar:
         - **Audio Only**: Focus on listening comprehension
         - **Image Only**: Focus on visual recognition
         - **Both Sides**: Review mode with everything visible
+
+        ### Media Editing Features
+        - **Trim Audio**: Cut off unwanted parts at the beginning or end of clips
+        - **Rename**: Change the number assignment of any media file
+        - **Batch Delete**: Select multiple files to delete at once
+        - **Individual Delete**: Remove single files that don't belong
+        - Use editing to fix extraction mistakes or customize your deck before export
         """)
 
     with st.expander("🐛 Troubleshooting", expanded=False):
