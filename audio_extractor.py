@@ -262,7 +262,7 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
         progress_callback(50, "Extracting audio clips...")
 
     # Extract audio clips for each detected number (in increasing order starting at 1)
-    expected_number = 1
+    last_accepted_number = 0  # Track last accepted number (start at 0 so 1 is accepted first)
     i = 0
     saved = 0
 
@@ -279,9 +279,12 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
             i += skip
             continue
 
-        # Only process if this is the expected number in sequence
-        if num_int != expected_number:
-            i += skip  # Skip numbers that are out of sequence
+        # First number must be 1, then accept any number greater than the last accepted
+        if last_accepted_number == 0 and num_int != 1:
+            i += skip  # Skip until we find number 1
+            continue
+        elif last_accepted_number > 0 and num_int <= last_accepted_number:
+            i += skip  # Skip numbers that are not increasing
             continue
 
         debug_info['detected_numbers'].append({
@@ -313,7 +316,7 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
             out_name = f"{num}.mp3"
             clip.export(os.path.join(output_dir, out_name), format="mp3")
             saved += 1
-            expected_number += 1  # Move to next expected number
+            last_accepted_number = num_int  # Update last accepted number
 
             if progress_callback:
                 progress_callback(50 + int(40 * saved / len(words)), f"Extracted clip {saved}...")
