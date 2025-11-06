@@ -302,41 +302,43 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
             'word': words[i]['raw']
         })
 
-        # Find the block of words: from the number itself until the next number
-        block_start = i  # Start from the number word itself
-        block_end_idx = i + skip  # First word after the number marker
+        # Get the timestamp where this number ends
+        number_end_time = words[i + skip - 1]['end'] * 1000
 
-        # Find where the next number starts
-        j = block_end_idx
+        # Find the start time of the next number (if any)
+        j = i + skip
+        next_number_start_time = None
         while j < len(words):
-            nxt_num, _ = detect_number_at(words, j)
+            nxt_num, nxt_skip = detect_number_at(words, j)
             if nxt_num:
+                next_number_start_time = words[j]['start'] * 1000
                 break
             j += 1
 
-        # Extract up to (but not including) the next number
-        # Include at least the number word(s) themselves
-        block_end = max(i + skip - 1, j - 1)
+        # Extract audio from current number start to next number start (or default duration)
+        start_time = words[i]['start'] * 1000 - buffer_ms
 
-        # Extract the audio for this block
-        if block_end >= block_start:
-            start_time = words[block_start]['start'] * 1000 - buffer_ms
-            end_time = words[block_end]['end'] * 1000 + buffer_ms
+        if next_number_start_time is not None:
+            # Extract up to the next number (with buffer)
+            end_time = next_number_start_time - buffer_ms
+        else:
+            # No next number - extract for 5 seconds after the number word ends
+            end_time = number_end_time + 5000
 
-            start_time = max(0, start_time)
-            end_time = min(len(audio), end_time)
+        start_time = max(0, start_time)
+        end_time = min(len(audio), end_time)
 
-            clip = audio[start_time:end_time]
+        clip = audio[start_time:end_time]
 
-            out_name = f"{num}.mp3"
-            out_path = os.path.join(output_dir, out_name)
-            clip.export(out_path, format="mp3")
-            created_files.append(out_path)  # Track created file
-            saved += 1
-            last_accepted_number = num_int  # Update last accepted number
+        out_name = f"{num}.mp3"
+        out_path = os.path.join(output_dir, out_name)
+        clip.export(out_path, format="mp3")
+        created_files.append(out_path)  # Track created file
+        saved += 1
+        last_accepted_number = num_int  # Update last accepted number
 
-            if progress_callback:
-                progress_callback(50 + int(40 * saved / len(words)), f"Extracted clip {saved}...")
+        if progress_callback:
+            progress_callback(50 + int(40 * saved / len(words)), f"Extracted clip {saved}...")
 
         i = j if j < len(words) else len(words)
 
