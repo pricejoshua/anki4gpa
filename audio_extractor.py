@@ -263,6 +263,7 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
 
     # Extract audio clips for each detected number (in increasing order starting at 1)
     last_accepted_number = 0  # Track last accepted number (start at 0 so 1 is accepted first)
+    created_files = []  # Track files created in current sequence
     i = 0
     saved = 0
 
@@ -281,6 +282,14 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
 
         # Accept "1" at any point (resets counter), otherwise numbers must be increasing
         if num_int == 1:
+            # If this is a reset (not the first "one"), delete all previous clips
+            if created_files:
+                for file_path in created_files:
+                    try:
+                        os.remove(file_path)
+                    except:
+                        pass
+                created_files = []
             # Reset counter when we encounter "1" (allows multiple takes)
             last_accepted_number = 0
         elif num_int <= last_accepted_number:
@@ -314,7 +323,9 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
             clip = audio[start_time:end_time]
 
             out_name = f"{num}.mp3"
-            clip.export(os.path.join(output_dir, out_name), format="mp3")
+            out_path = os.path.join(output_dir, out_name)
+            clip.export(out_path, format="mp3")
+            created_files.append(out_path)  # Track created file
             saved += 1
             last_accepted_number = num_int  # Update last accepted number
 
