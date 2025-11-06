@@ -172,7 +172,7 @@ def transcribe_with_openai(audio_path, api_key=None):
 
 def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=400,
                        use_vad=False, api_type="local", api_key=None,
-                       progress_callback=None, debug=False):
+                       progress_callback=None, debug=False, clip_duration_ms=3000):
     """
     Extract numbered audio clips using Whisper transcription.
 
@@ -180,12 +180,13 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
         input_file: Path to input audio file
         output_dir: Directory to save extracted clips
         model_size: Whisper model size (tiny, base, small, medium, large) - only for local
-        buffer_ms: Buffer time in milliseconds to add before/after each clip
+        buffer_ms: Buffer time in milliseconds to add before each clip
         use_vad: Use Voice Activity Detection filter - only for local
         api_type: "local" (faster-whisper), "groq" (Groq API), or "openai" (OpenAI API)
         api_key: API key for Groq/OpenAI (if not set in environment)
         progress_callback: Optional callback(percent, message)
         debug: Return detailed debug information
+        clip_duration_ms: Duration in milliseconds to extract after each number (default: 3000ms)
 
     Returns:
         Number of clips extracted, or (count, debug_info) if debug=True
@@ -315,15 +316,15 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
                 break
             j += 1
 
-        # Extract audio from current number start to next number start (or default duration)
-        start_time = words[i]['start'] * 1000 - buffer_ms
+        # Extract audio from end of current number to start of next number
+        start_time = number_end_time
 
         if next_number_start_time is not None:
-            # Extract up to the next number (with buffer)
-            end_time = next_number_start_time - buffer_ms
+            # Extract up to the next number
+            end_time = next_number_start_time
         else:
-            # No next number - extract for 5 seconds after the number word ends
-            end_time = number_end_time + 5000
+            # No next number - extract fixed duration after the number word ends
+            end_time = number_end_time + clip_duration_ms
 
         start_time = max(0, start_time)
         end_time = min(len(audio), end_time)
