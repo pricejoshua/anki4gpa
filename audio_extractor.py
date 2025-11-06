@@ -302,17 +302,23 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
             'word': words[i]['raw']
         })
 
-        # Find the block of words after this number until the next number
-        block_start = i + skip
-        j = block_start
+        # Find the block of words: from the number itself until the next number
+        block_start = i  # Start from the number word itself
+        block_end_idx = i + skip  # First word after the number marker
+
+        # Find where the next number starts
+        j = block_end_idx
         while j < len(words):
             nxt_num, _ = detect_number_at(words, j)
             if nxt_num:
                 break
             j += 1
-        block_end = j - 1
 
-        # If there are words in this block, extract the audio
+        # Extract up to (but not including) the next number
+        # Include at least the number word(s) themselves
+        block_end = max(i + skip - 1, j - 1)
+
+        # Extract the audio for this block
         if block_end >= block_start:
             start_time = words[block_start]['start'] * 1000 - buffer_ms
             end_time = words[block_end]['end'] * 1000 + buffer_ms
