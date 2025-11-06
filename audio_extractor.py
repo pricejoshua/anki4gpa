@@ -279,11 +279,11 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
             i += skip
             continue
 
-        # First number must be 1, then accept any number greater than the last accepted
-        if last_accepted_number == 0 and num_int != 1:
-            i += skip  # Skip until we find number 1
-            continue
-        elif last_accepted_number > 0 and num_int <= last_accepted_number:
+        # Accept "1" at any point (resets counter), otherwise numbers must be increasing
+        if num_int == 1:
+            # Reset counter when we encounter "1" (allows multiple takes)
+            last_accepted_number = 0
+        elif num_int <= last_accepted_number:
             i += skip  # Skip numbers that are not increasing
             continue
 
