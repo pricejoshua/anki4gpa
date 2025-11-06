@@ -261,8 +261,8 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
     if progress_callback:
         progress_callback(50, "Extracting audio clips...")
 
-    # Extract audio clips for each detected number
-    counters = {}
+    # Extract audio clips for each detected number (in increasing order starting at 1)
+    expected_number = 1
     i = 0
     saved = 0
 
@@ -270,6 +270,18 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
         num, skip = detect_number_at(words, i)
         if not num:
             i += 1
+            continue
+
+        # Convert num to integer for comparison
+        try:
+            num_int = int(num)
+        except ValueError:
+            i += skip
+            continue
+
+        # Only process if this is the expected number in sequence
+        if num_int != expected_number:
+            i += skip  # Skip numbers that are out of sequence
             continue
 
         debug_info['detected_numbers'].append({
@@ -298,13 +310,10 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
 
             clip = audio[start_time:end_time]
 
-            # Handle duplicate numbers
-            counters[num] = counters.get(num, 0) + 1
-            occ = counters[num]
-
-            out_name = f"{num}_{occ}.mp3" if occ > 1 else f"{num}.mp3"
+            out_name = f"{num}.mp3"
             clip.export(os.path.join(output_dir, out_name), format="mp3")
             saved += 1
+            expected_number += 1  # Move to next expected number
 
             if progress_callback:
                 progress_callback(50 + int(40 * saved / len(words)), f"Extracted clip {saved}...")
