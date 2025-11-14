@@ -355,17 +355,79 @@ with tab3:
         if missing_images:
             st.warning(f"Audio without images: {sorted(missing_images)}")
 
-        # Display sample pairs
-        for num, audio_path, image_path in st.session_state.paired_files[:5]:
-            with st.expander(f"Card {num}"):
+        # Management controls
+        st.markdown("**Manage Paired Cards:**")
+
+        # Display all pairs with management options
+        for idx, (num, audio_path, image_path) in enumerate(st.session_state.paired_files):
+            with st.expander(f"Card {num}", expanded=False):
                 col1, col2 = st.columns(2)
                 with col1:
                     st.image(image_path, caption=f"Image {num}", use_container_width=True)
                 with col2:
                     st.audio(audio_path)
 
-        if len(st.session_state.paired_files) > 5:
-            st.info(f"Showing first 5 of {len(st.session_state.paired_files)} pairs")
+                # Management buttons
+                st.markdown("---")
+                mgmt_col1, mgmt_col2, mgmt_col3 = st.columns([1, 1, 1])
+
+                with mgmt_col1:
+                    if st.button(f"🗑️ Remove", key=f"remove_{idx}_{num}"):
+                        # Remove from session state
+                        st.session_state.paired_files.pop(idx)
+                        # Remove files from temp_final directory
+                        try:
+                            if os.path.exists(audio_path):
+                                os.remove(audio_path)
+                            if os.path.exists(image_path):
+                                os.remove(image_path)
+                        except Exception as e:
+                            st.error(f"Error removing files: {str(e)}")
+                        st.rerun()
+
+                with mgmt_col2:
+                    # Get list of other card numbers for swapping
+                    other_cards = [n for i, (n, _, _) in enumerate(st.session_state.paired_files) if i != idx]
+                    if other_cards:
+                        swap_audio_target = st.selectbox(
+                            "Swap Audio with Card:",
+                            options=[None] + other_cards,
+                            key=f"swap_audio_{idx}_{num}",
+                            format_func=lambda x: "Select card..." if x is None else f"Card {x}"
+                        )
+                        if swap_audio_target is not None:
+                            if st.button(f"↔️ Swap Audio", key=f"swap_audio_btn_{idx}_{num}"):
+                                # Find the target pair
+                                target_idx = next(i for i, (n, _, _) in enumerate(st.session_state.paired_files) if n == swap_audio_target)
+                                # Swap audio files in session state
+                                pairs = st.session_state.paired_files
+                                pairs[idx] = (pairs[idx][0], pairs[target_idx][1], pairs[idx][2])
+                                pairs[target_idx] = (pairs[target_idx][0], audio_path, pairs[target_idx][2])
+                                st.session_state.paired_files = pairs
+                                st.success(f"Swapped audio between Card {num} and Card {swap_audio_target}")
+                                st.rerun()
+
+                with mgmt_col3:
+                    if other_cards:
+                        swap_image_target = st.selectbox(
+                            "Swap Image with Card:",
+                            options=[None] + other_cards,
+                            key=f"swap_image_{idx}_{num}",
+                            format_func=lambda x: "Select card..." if x is None else f"Card {x}"
+                        )
+                        if swap_image_target is not None:
+                            if st.button(f"↔️ Swap Image", key=f"swap_image_btn_{idx}_{num}"):
+                                # Find the target pair
+                                target_idx = next(i for i, (n, _, _) in enumerate(st.session_state.paired_files) if n == swap_image_target)
+                                # Swap image files in session state
+                                pairs = st.session_state.paired_files
+                                pairs[idx] = (pairs[idx][0], pairs[idx][1], pairs[target_idx][2])
+                                pairs[target_idx] = (pairs[target_idx][0], pairs[target_idx][1], image_path)
+                                st.session_state.paired_files = pairs
+                                st.success(f"Swapped image between Card {num} and Card {swap_image_target}")
+                                st.rerun()
+
+        st.info(f"💡 Tip: You can remove unwanted pairs or swap audio/images between cards before exporting.")
 
 # ============================================================================
 # TAB 4: EXPORT ANKI DECK
