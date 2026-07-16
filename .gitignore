@@ -53,3 +53,6 @@ Thumbs.db
 
 # Except test data
 !test_data/**/*
+
+# Except bundled tutorial examples
+!examples/**/*
