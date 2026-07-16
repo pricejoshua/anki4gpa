@@ -66,12 +66,98 @@ st.markdown("Create Anki flashcard decks from Word documents and audio files")
 st.markdown("---")
 
 # === TAB SETUP ===
-tab1, tab2, tab3, tab4 = st.tabs([
+tab0, tab1, tab2, tab3, tab4 = st.tabs([
+    "📘 Tutorial",
     "1️⃣ Extract Images",
     "2️⃣ Extract Audio",
     "3️⃣ Pair Files",
     "4️⃣ Export Deck"
 ])
+
+# ============================================================================
+# TAB 0: TUTORIAL
+# ============================================================================
+with tab0:
+    st.header("How This Tool Works")
+    st.markdown("""
+    This tool builds an Anki deck from two source files: a **Word document**
+    containing numbered images, and an **audio file** with numbered vocabulary
+    recordings. The pipeline has four steps:
+
+    1. **Extract Images** — pull numbered images out of the Word document
+    2. **Extract Audio** — transcribe the audio and cut out numbered vocabulary clips
+    3. **Pair Files** — match images and audio clips by number
+    4. **Export Deck** — generate the final `.apkg` file for Anki
+
+    The sections below explain exactly how each source file needs to be
+    structured, using real example files you can preview.
+    """)
+
+    st.markdown("---")
+
+    # --- Word Document Format ---
+    st.subheader("📄 Word Document Format")
+    st.markdown("""
+    Images must appear in (or right next to) a **numbered list item**. Two
+    numbering styles are both detected automatically:
+
+    - **Literal text numbers**, like a paragraph that just says `1.`
+    - **Word's automatic numbered-list formatting** (the bulleted/numbered
+      list button in Word's toolbar) — the example file below actually uses
+      this style, not literal digits
+
+    The rest of the document can contain anything else — lesson objectives,
+    activity tables, timing notes, whatever your lesson plan needs. The
+    extractor only looks at numbered-list paragraphs and ignores everything
+    else, so you don't need to strip the document down to just the vocab list.
+
+    **⚠️ Watch out for:** if some *other* part of the document also uses a
+    numbered list or a literal digit paragraph (like a numbered activity
+    step), its image could get mistaken for a vocabulary item. Keep the vocab
+    image list as the only numbered list in the document if possible, or
+    double-check the extracted image count and filenames in Tab 1 before
+    moving on.
+    """)
+
+    docx_example_path = "examples/Unit 2 Session 9 Lesson Plan 2025.docx"
+    if os.path.exists(docx_example_path):
+        with open(docx_example_path, "rb") as f:
+            st.download_button(
+                label="📥 Download Example Word Document",
+                data=f.read(),
+                file_name="example_lesson_plan.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="download_example_docx"
+            )
+        st.caption("Open this in Word to see the numbered image list in context.")
+    else:
+        st.info("Example file not bundled in this deployment.")
+
+    st.markdown("---")
+
+    # --- Audio File Format ---
+    st.subheader("🔊 Audio File Format")
+    st.markdown("""
+    Record any preamble or introduction first — it's ignored entirely. Then:
+
+    - Say **"1"**, then the vocabulary word
+    - Say **"2"**, then the next vocabulary word
+    - ...and so on, in increasing order
+
+    Saying **"1" again** at any point resets the sequence and discards
+    previously extracted clips for that take — handy if you want to redo a
+    recording without editing the audio file.
+
+    Supported formats: MP3, AAC, M4A, WAV. If clips come out cut off or with
+    extra silence, adjust the buffer-time setting in Tab 2.
+    """)
+
+    audio_example_path = "examples/U02-S09.aac"
+    if os.path.exists(audio_example_path):
+        st.audio(audio_example_path)
+        st.caption("Example recording: preamble, then \"1\", vocab word, \"2\", vocab word, ...")
+    else:
+        st.info("Example file not bundled in this deployment.")
 
 # ============================================================================
 # TAB 1: EXTRACT IMAGES
