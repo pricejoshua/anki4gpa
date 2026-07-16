@@ -152,7 +152,7 @@ with tab0:
     extra silence, adjust the buffer-time setting in Tab 2.
     """)
 
-    audio_example_path = "examples/U02-S09.aac"
+    audio_example_path = "examples/U02-S09.mp3"
     if os.path.exists(audio_example_path):
         st.audio(audio_example_path)
         st.caption("Example recording: preamble, then \"1\", vocab word, \"2\", vocab word, ...")
