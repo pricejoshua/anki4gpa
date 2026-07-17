@@ -142,6 +142,63 @@ def extract_numbered_images(docx_path, output_folder, convert_to_png=True):
     return sum(counter.values())
 
 
+def save_numbered_photos(uploads, output_folder):
+    """
+    Saves directly-uploaded photo files as numbered PNGs, mirroring the
+    output format of extract_numbered_images() so downstream pairing/export
+    code needs no source-specific handling.
+
+    Args:
+        uploads: list of (filename, bytes) tuples
+        output_folder: directory to write numbered PNGs into (created if missing)
+
+    Returns:
+        dict with keys:
+            'saved': sorted list of int card numbers successfully written
+            'skipped_no_number': list of filenames with no digit found
+            'skipped_duplicate': list of filenames whose number was already
+                claimed by an earlier (alphabetically-first) file
+            'skipped_unreadable': list of filenames Pillow could not open
+    """
+    os.makedirs(output_folder, exist_ok=True)
+
+    result = {
+        'saved': [],
+        'skipped_no_number': [],
+        'skipped_duplicate': [],
+        'skipped_unreadable': [],
+    }
+
+    used_numbers = set()
+
+    for filename, data in sorted(uploads, key=lambda u: u[0]):
+        match = re.search(r'\d+', filename)
+        if not match:
+            result['skipped_no_number'].append(filename)
+            continue
+
+        num = int(match.group())
+        if num in used_numbers:
+            result['skipped_duplicate'].append(filename)
+            continue
+
+        try:
+            with Image.open(BytesIO(data)) as img:
+                img.convert("RGBA").save(
+                    os.path.join(output_folder, f"{num}.png"),
+                    format="PNG"
+                )
+        except Exception:
+            result['skipped_unreadable'].append(filename)
+            continue
+
+        used_numbers.add(num)
+        result['saved'].append(num)
+
+    result['saved'].sort()
+    return result
+
+
 if __name__ == "__main__":
     import sys
 
