@@ -12,7 +12,7 @@ import zipfile
 from io import BytesIO
 
 # Import our custom modules
-from image_extractor import extract_numbered_images
+from image_extractor import extract_numbered_images, save_numbered_photos
 from audio_extractor import extract_audio_clips
 from file_pairer import pair_files
 from deck_creator import create_anki_deck
@@ -163,49 +163,109 @@ with tab0:
 # TAB 1: EXTRACT IMAGES
 # ============================================================================
 with tab1:
-    st.header("Extract Images from Word Document")
-    st.markdown("Upload a .docx file with numbered paragraphs and images")
+    st.header("Add Images")
 
-    docx_file = st.file_uploader(
-        "Upload Word Document (.docx)",
-        type=['docx'],
-        key='docx',
-        help="Drag and drop a file or click Browse files"
+    image_source = st.radio(
+        "Image source",
+        ["📄 Extract from Word Document", "🖼️ Upload Photos Directly"],
+        key="image_source_mode",
+        horizontal=True,
     )
 
-    if st.button("Extract Images", key='extract_images_btn'):
-        if docx_file is None:
-            st.error("Please upload a Word document first")
-        else:
-            try:
-                with st.spinner("Extracting images..."):
-                    # Create temp directory for images
-                    if st.session_state.temp_images:
-                        shutil.rmtree(st.session_state.temp_images, ignore_errors=True)
-                    st.session_state.temp_images = tempfile.mkdtemp(prefix="anki_images_")
+    if image_source == "📄 Extract from Word Document":
+        st.markdown("Upload a .docx file with numbered paragraphs and images")
 
-                    # Save uploaded file temporarily
-                    temp_docx = tempfile.NamedTemporaryFile(delete=False, suffix='.docx')
-                    temp_docx.write(docx_file.getvalue())
-                    temp_docx.close()
+        docx_file = st.file_uploader(
+            "Upload Word Document (.docx)",
+            type=['docx'],
+            key='docx',
+            help="Drag and drop a file or click Browse files"
+        )
 
-                    # Extract images
-                    extract_numbered_images(temp_docx.name, st.session_state.temp_images)
+        if st.button("Extract Images", key='extract_images_btn'):
+            if docx_file is None:
+                st.error("Please upload a Word document first")
+            else:
+                try:
+                    with st.spinner("Extracting images..."):
+                        # Create temp directory for images
+                        if st.session_state.temp_images:
+                            shutil.rmtree(st.session_state.temp_images, ignore_errors=True)
+                        st.session_state.temp_images = tempfile.mkdtemp(prefix="anki_images_")
 
-                    # Clean up temp docx
-                    os.unlink(temp_docx.name)
+                        # Save uploaded file temporarily
+                        temp_docx = tempfile.NamedTemporaryFile(delete=False, suffix='.docx')
+                        temp_docx.write(docx_file.getvalue())
+                        temp_docx.close()
 
-                    # Get list of extracted files
-                    st.session_state.image_files = sorted(
-                        [f for f in os.listdir(st.session_state.temp_images) if f.endswith('.png')],
-                        key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
-                    )
+                        # Extract images
+                        extract_numbered_images(temp_docx.name, st.session_state.temp_images)
 
-                    st.success(f"Extracted {len(st.session_state.image_files)} images!")
-            except Exception as e:
-                st.error(f"Error extracting images: {str(e)}")
+                        # Clean up temp docx
+                        os.unlink(temp_docx.name)
 
-    # Display extracted images
+                        # Get list of extracted files
+                        st.session_state.image_files = sorted(
+                            [f for f in os.listdir(st.session_state.temp_images) if f.endswith('.png')],
+                            key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
+                        )
+
+                        st.success(f"Extracted {len(st.session_state.image_files)} images!")
+                except Exception as e:
+                    st.error(f"Error extracting images: {str(e)}")
+    else:
+        st.markdown(
+            "Upload individual photo files named with their card number, e.g. "
+            "`1.jpg`, `2.jpg` — the first number found anywhere in the filename "
+            "is used, so `img_3.jpg` or `vocab-3-final.png` both become card 3."
+        )
+
+        photo_files = st.file_uploader(
+            "Upload Photos",
+            type=['jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff', 'webp', 'ppm'],
+            accept_multiple_files=True,
+            key='photos',
+            help="Drag and drop files or click Browse files"
+        )
+
+        if st.button("Use These Photos", key='use_photos_btn'):
+            if not photo_files:
+                st.error("Please upload photo files first")
+            else:
+                try:
+                    with st.spinner("Processing photos..."):
+                        if st.session_state.temp_images:
+                            shutil.rmtree(st.session_state.temp_images, ignore_errors=True)
+                        st.session_state.temp_images = tempfile.mkdtemp(prefix="anki_images_")
+
+                        uploads = [(f.name, f.getvalue()) for f in photo_files]
+                        result = save_numbered_photos(uploads, st.session_state.temp_images)
+
+                        st.session_state.image_files = sorted(
+                            [f for f in os.listdir(st.session_state.temp_images) if f.endswith('.png')],
+                            key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
+                        )
+
+                        st.success(f"Loaded {len(result['saved'])} photos!")
+                        if result['skipped_no_number']:
+                            st.warning(
+                                "Skipped (no number found in filename): "
+                                + ", ".join(result['skipped_no_number'])
+                            )
+                        if result['skipped_duplicate']:
+                            st.warning(
+                                "Skipped (duplicate number, first one kept): "
+                                + ", ".join(result['skipped_duplicate'])
+                            )
+                        if result['skipped_unreadable']:
+                            st.warning(
+                                "Skipped (unreadable image file): "
+                                + ", ".join(result['skipped_unreadable'])
+                            )
+                except Exception as e:
+                    st.error(f"Error processing photos: {str(e)}")
+
+    # Display extracted images (shared by both image sources above)
     if st.session_state.image_files:
         st.subheader(f"Extracted Images ({len(st.session_state.image_files)})")
         cols = st.columns(4)
