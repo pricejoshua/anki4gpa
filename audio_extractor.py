@@ -49,40 +49,96 @@ def fuzzy_score_for(token, candidate_number):
     return max(fuzz.ratio(token, form) for form in forms)
 
 
+# Known ASR misrecognitions, keyed by the digit they should map to.
+# Gated by last_accepted_number in detect_number_at (not a global lookup)
+# because several of these tokens (e.g. "for", "too") are also common
+# English words that could appear in ordinary speech.
+MISRECOGNITION_MAP = {
+    "1": ["won"],
+    "2": ["too", "to"],
+    "4": ["for", "fore"],
+    "8": ["ate"],
+}
+
+_MISRECOGNITION_LOOKUP = {
+    token: digit
+    for digit, tokens in MISRECOGNITION_MAP.items()
+    for token in tokens
+}
+
+FUZZY_THRESHOLD_ADVANCE = 85
+FUZZY_THRESHOLD_RESET = 92
+
+
 def norm_token(s):
     """Normalize a token by removing non-alphanumeric characters"""
     return re.sub(r"[^a-z0-9\-]+", "", (s or "").lower())
 
 
-def detect_number_at(words, i):
+def detect_number_at(words, i, last_accepted_number=0):
     """
     Detect if a number appears at position i in the words list.
-    Returns (number_string, tokens_consumed) or (None, 0)
+
+    last_accepted_number is the most recently accepted number in the
+    current sequence (0 if none accepted yet). It narrows tiers 2 and 3
+    to the specific number(s) that would legitimately come next (the
+    expected-next number, and "1" if a reset is currently legal), which
+    keeps false positives low on common English words that happen to
+    resemble a number.
+
+    Returns (number_string, tokens_consumed, match_type, score) or
+    (None, 0, None, None). match_type is one of "exact", "misrecognition",
+    "fuzzy". score is 100 for "exact"/"misrecognition", or the rapidfuzz
+    ratio (0-100) for "fuzzy".
     """
     if i >= len(words):
-        return None, 0
+        return None, 0, None, None
 
     raw = words[i]['raw'].lower()
     token = words[i]['norm']
 
-    # Check for "number X" pattern
+    # Check for "number X" pattern - the "number" prefix already
+    # disambiguates intent, so this branch checks the full vocabulary
+    # unconditionally (not sequence-gated).
     if token == "number" and i + 1 < len(words):
         nxt = words[i + 1]['norm']
         if nxt in WORD2DIGIT:
-            return WORD2DIGIT[nxt], 2
+            return WORD2DIGIT[nxt], 2, "exact", 100
         if nxt.isdigit():
-            return nxt, 2
+            return nxt, 2, "exact", 100
+        if nxt in _MISRECOGNITION_LOOKUP:
+            return _MISRECOGNITION_LOOKUP[nxt], 2, "misrecognition", 100
 
     # Check if current token is a number word or digit
     if token in WORD2DIGIT:
-        return WORD2DIGIT[token], 1
+        return WORD2DIGIT[token], 1, "exact", 100
     if token.isdigit():
-        return token, 1
+        return token, 1, "exact", 100
 
     # Check normalized version of raw word
     combo = norm_token(raw)
     if combo in WORD2DIGIT:
-        return WORD2DIGIT[combo], 1
+        return WORD2DIGIT[combo], 1, "exact", 100
+
+    # Tiers 2 and 3 are sequence-gated: only the number(s) that would
+    # legitimately come next are considered.
+    expected_next = last_accepted_number + 1
+
+    if expected_next <= 30 and token in MISRECOGNITION_MAP.get(str(expected_next), ()):
+        return str(expected_next), 1, "misrecognition", 100
+    if last_accepted_number > 0 and token in MISRECOGNITION_MAP.get("1", ()):
+        return "1", 1, "misrecognition", 100
+
+    if expected_next <= 30:
+        score = fuzzy_score_for(token, expected_next)
+        if score >= FUZZY_THRESHOLD_ADVANCE:
+            return str(expected_next), 1, "fuzzy", score
+    if last_accepted_number > 0:
+        score = fuzzy_score_for(token, 1)
+        if score >= FUZZY_THRESHOLD_RESET:
+            return "1", 1, "fuzzy", score
+
+    return None, 0, None, None
 
     return None, 0
 
