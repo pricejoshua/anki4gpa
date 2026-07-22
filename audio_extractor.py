@@ -20,6 +20,20 @@ WORD2DIGIT = {
     "twentynine":"29","thirty":"30"
 }
 
+DIGIT2WORD = {v: k for k, v in WORD2DIGIT.items()}
+
+
+def word_forms_for(number):
+    """Return known spoken word forms for a number 0-30, for fuzzy matching."""
+    compact = DIGIT2WORD.get(str(number))
+    if compact is None:
+        return []
+    forms = [compact]
+    if 21 <= number <= 29:
+        ones_word = DIGIT2WORD[str(number - 20)]
+        forms.append(f"twenty-{ones_word}")
+    return forms
+
 
 def norm_token(s):
     """Normalize a token by removing non-alphanumeric characters"""
