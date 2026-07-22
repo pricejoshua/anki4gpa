@@ -411,7 +411,7 @@ with tab2:
                             if debug_info['detected_numbers']:
                                 st.write("**Detected Numbers:**")
                                 for num_info in debug_info['detected_numbers']:
-                                    st.text(f"Number {num_info['number']} at position {num_info['position']}: '{num_info['word']}'")
+                                    st.text(f"Number {num_info['number']} at position {num_info['position']}: '{num_info['word']}' ({num_info['match_type']}, score {num_info['score']})")
                             else:
                                 st.error("No numbers detected! Check if the audio contains spoken numbers like 'one', 'two', 'number one', etc.")
 
