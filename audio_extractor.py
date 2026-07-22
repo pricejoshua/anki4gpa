@@ -351,7 +351,7 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
     saved = 0
 
     while i < len(words):
-        num, skip = detect_number_at(words, i)
+        num, skip, match_type, score = detect_number_at(words, i, last_accepted_number)
         if not num:
             i += 1
             continue
@@ -382,7 +382,9 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
         debug_info['detected_numbers'].append({
             'number': num,
             'position': i,
-            'word': words[i]['raw']
+            'word': words[i]['raw'],
+            'match_type': match_type,
+            'score': score
         })
 
         # Get the timestamp where this number ends
@@ -392,7 +394,7 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
         j = i + skip
         next_number_start_time = None
         while j < len(words):
-            nxt_num, nxt_skip = detect_number_at(words, j)
+            nxt_num, nxt_skip, _, _ = detect_number_at(words, j, num_int)
             if nxt_num:
                 next_number_start_time = words[j]['start'] * 1000
                 break
