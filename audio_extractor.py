@@ -7,6 +7,7 @@ Supports: Local (faster-whisper), Groq API, OpenAI API
 import os
 import re
 from pydub import AudioSegment
+from rapidfuzz import fuzz
 
 
 # Number word to digit mapping
@@ -33,6 +34,19 @@ def word_forms_for(number):
         ones_word = DIGIT2WORD[str(number - 20)]
         forms.append(f"twenty-{ones_word}")
     return forms
+
+
+def fuzzy_score_for(token, candidate_number):
+    """Best rapidfuzz similarity ratio (0-100) between token and candidate_number's
+    known spoken forms. Returns 0 if token is too short or purely numeric to be a
+    meaningful fuzzy-match candidate (digits are handled by the exact-match tier).
+    """
+    if len(token) < 3 or token.isdigit():
+        return 0
+    forms = word_forms_for(candidate_number)
+    if not forms:
+        return 0
+    return max(fuzz.ratio(token, form) for form in forms)
 
 
 def norm_token(s):
