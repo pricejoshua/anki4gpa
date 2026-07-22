@@ -140,8 +140,6 @@ def detect_number_at(words, i, last_accepted_number=0):
 
     return None, 0, None, None
 
-    return None, 0
-
 
 def transcribe_with_local_whisper(audio_path, model_size="small", use_vad=False):
     """Transcribe using local faster-whisper model"""
