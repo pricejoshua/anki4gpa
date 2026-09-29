@@ -16,12 +16,12 @@ def test_simple_sequence():
     spans = plan_clip_spans(words, 60000, 3000)
     assert numbers(spans) == ["1", "2", "3"]
     assert spans[0]["start_ms"] == 500 and spans[0]["end_ms"] == 3000
-    assert spans[-1]["start_ms"] == 6500 and spans[-1]["end_ms"] == 9500
+    assert spans[-1]["start_ms"] == 6500 and spans[-1]["end_ms"] == 7800  # "e" end + 300
 
 
 def test_last_span_clamped_to_audio_length():
-    spans = plan_clip_spans(words_from("one a"), 2000, 3000)
-    assert spans[0]["end_ms"] == 2000
+    spans = plan_clip_spans(words_from("one a"), 1600, 3000)
+    assert spans[0]["end_ms"] == 1600
 
 
 def test_repeated_number_does_not_make_empty_clip():
@@ -70,3 +70,48 @@ def test_score_spans():
     assert score_spans([span(1, 0, 1000), span(2, 1000, 1000)]) == (False, 1)
     assert score_spans([span(2, 0, 1000)]) == (False, 1)
     assert score_spans([]) == (False, 0)
+
+
+def words_timed(spec):
+    """Words from 'text@start-end' items with explicit seconds."""
+    out = []
+    for item in spec.split():
+        text, times = item.split("@")
+        start, end = (float(x) for x in times.split("-"))
+        out.append({"start": start, "end": end, "raw": text, "norm": norm_token(text)})
+    return out
+
+
+LAST_PHRASE = ("eleven@9.0-9.5 a@9.5-9.8 twelve@10.0-10.5 inas@12.5-13.0 goje@13.0-13.6 "
+               "shude@13.6-14.2 just@15.4-15.8 added@15.8-16.2")
+
+
+def test_last_clip_ends_at_last_word_before_pause():
+    spans = plan_clip_spans(words_timed(LAST_PHRASE), 60000, 3000)
+    assert numbers(spans) == ["11", "12"]
+    assert spans[-1]["end_ms"] == 14500
+
+
+def test_gap_after_number_does_not_stop_walk():
+    spans = plan_clip_spans(words_timed(LAST_PHRASE), 60000, 3000)
+    assert spans[-1]["end_ms"] > 13000  # not cut before "inas"
+
+
+def test_pause_of_exactly_one_second_continues():
+    spans = plan_clip_spans(words_timed("twelve@10-10.5 a@12-12.5 b@13.5-14"), 60000, 3000)
+    assert spans[-1]["end_ms"] == 14300
+
+
+def test_last_clip_with_no_following_words_uses_clip_duration():
+    spans = plan_clip_spans(words_timed("twelve@10-10.5"), 60000, 3000)
+    assert spans[-1]["end_ms"] == 13500
+
+
+def test_last_clip_end_clamped_to_audio_length():
+    spans = plan_clip_spans(words_timed("twelve@10-10.5 a@11-14.9"), 15000, 3000)
+    assert spans[-1]["end_ms"] == 15000
+
+
+def test_non_last_span_end_unchanged():
+    spans = plan_clip_spans(words_timed(LAST_PHRASE), 60000, 3000)
+    assert spans[0]["end_ms"] == 10000  # start of "twelve"

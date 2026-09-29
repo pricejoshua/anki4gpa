@@ -148,6 +148,8 @@ def detect_number_at(words, i, last_accepted_number=0):
 
 
 MIN_GOOD_CLIP_MS = 300
+LAST_CLIP_PAUSE_MS = 1000
+LAST_CLIP_TAIL_MS = 300
 
 
 def _is_acceptable(words, j, skip, candidate, last):
@@ -183,8 +185,12 @@ def plan_clip_spans(words, audio_len_ms, clip_duration_ms):
 
     Numbers must increase from 1; a "1" restarts the sequence and discards
     earlier spans. A clip runs from the end of its number word to the start
-    of the next acceptable number, or clip_duration_ms past the number word
-    if there is none, clamped to the audio.
+    of the next acceptable number. If there is none (the last clip), it runs
+    to the end of the last word before a pause longer than LAST_CLIP_PAUSE_MS
+    (walking the words after the number; the gap between the number and the
+    first of them is not checked), plus LAST_CLIP_TAIL_MS. clip_duration_ms
+    past the number word is used only when no words follow it. All clamped to
+    the audio.
 
     Returns a list of dicts with keys number, start_ms, end_ms, position,
     word, match_type, score.
@@ -213,7 +219,19 @@ def plan_clip_spans(words, audio_len_ms, clip_duration_ms):
                 break
             j += max(nxt_skip, 1)
 
-        end_ms = words[j]['start'] * 1000 if j < len(words) else start_ms + clip_duration_ms
+        if j < len(words):
+            end_ms = words[j]['start'] * 1000
+        else:
+            following = words[i + skip:]
+            if following:
+                kept = following[0]
+                for w in following[1:]:
+                    if (w['start'] - kept['end']) * 1000 > LAST_CLIP_PAUSE_MS:
+                        break
+                    kept = w
+                end_ms = kept['end'] * 1000 + LAST_CLIP_TAIL_MS
+            else:
+                end_ms = start_ms + clip_duration_ms
 
         spans.append({
             'number': num,
