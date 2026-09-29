@@ -124,3 +124,22 @@ Measured on the real recording's transcripts: the gap from the number to the fir
   5. The ~2 s gap between the number and the first following word does not stop the walk (covered by test 1; assert the span isn't cut before `inas`).
   6. Non-last spans unchanged (e.g. span 11 still ends at `twelve`'s start in test 1's list).
 - [ ] **Step 2:** Run, confirm failures. **Step 3:** Implement. **Step 4:** Full suite green. **Step 5:** Commit `"End the last clip at the last word before a pause"`.
+
+---
+
+## Revision 3: prompt instability on small models
+
+Controller verification after the final fix wave: the `base` model with `NUMBER_PROMPT` is unstable across runs — one run echoed the prompt ("seventeen, eighteen, eighteen, …" 100+ zero-length words), another returned a "complete" 1–12 in which clip 6 was only 0.4 s (its real content, "naan naan", is ~2 s), so the fallback never ran. `tiny`/`base` never benefited from the prompt in any run; with Revision 1's span rules they reach 1–12 without it.
+
+### Task 4: Don't prompt tiny/base; stricter good-clip threshold; drop stray symlink
+
+**Files:** `audio_extractor.py`, tests; remove tracked `.venv`.
+
+Constraints:
+- Module constant `UNPROMPTED_MODEL_SIZES = ("tiny", "base")`. In `extract_audio_clips`, when `api_type == "local"` and `model_size` is in that tuple, pass 1 uses `prompt=None` and there is **no** second pass (it would be identical); `whisper_info['pass'] = "no prompt (model too small for prompt)"`. All other local sizes and both APIs keep prompt-then-fallback unchanged.
+- `MIN_GOOD_CLIP_MS` 300 → 1000. Update any tests that encode 300.
+- `git rm --cached .venv` (it's a machine-specific symlink committed by mistake) and add a line `.venv` (no trailing slash, so symlinks match) to `.gitignore` next to the existing `.venv/`.
+
+Tests: tiny/base → transcriber called exactly once with `prompt=None` and the pass label above; small still calls with `NUMBER_PROMPT` first; `score_spans` treats a 999 ms span as not good and 1000 ms as good; a scripted prompted pass that is 1..N but has one 400 ms clip triggers the fallback.
+
+Commit: `"Skip the number prompt for tiny/base; require 1 s clips; untrack .venv symlink"`.
