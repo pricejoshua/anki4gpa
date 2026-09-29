@@ -456,7 +456,8 @@ def save_numbered_audio(uploads, output_folder):
     Returns:
         dict with keys:
             'saved': sorted list of int card numbers successfully written
-            'skipped_no_number': list of filenames with no digit found
+            'skipped_no_number': list of filenames with no digit in the
+                filename (excluding extension)
             'skipped_duplicate': list of filenames whose number was already
                 claimed by an earlier (alphabetically-first) file
             'skipped_unreadable': list of filenames pydub/ffmpeg could not decode
@@ -473,7 +474,7 @@ def save_numbered_audio(uploads, output_folder):
     used_numbers = set()
 
     for filename, data in sorted(uploads, key=lambda u: u[0]):
-        match = re.search(r'\d+', filename)
+        match = re.search(r'\d+', os.path.splitext(filename)[0])
         if not match:
             result['skipped_no_number'].append(filename)
             continue
@@ -492,6 +493,11 @@ def save_numbered_audio(uploads, output_folder):
             else:
                 clip.export(out_path, format="mp3")
         except Exception:
+            try:
+                if os.path.exists(out_path):
+                    os.remove(out_path)
+            except OSError:
+                pass
             result['skipped_unreadable'].append(filename)
             continue
 

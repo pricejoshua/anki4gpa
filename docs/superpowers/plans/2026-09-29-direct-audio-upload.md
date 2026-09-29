@@ -21,7 +21,7 @@ Downstream (`file_pairer.py`, `deck_creator.py`, Tab 2's existing clip list/down
 ## Global Constraints
 
 - Accepted upload types: `mp3, m4a, aac, wav, ogg, flac`.
-- Filename → card number: first `re.search(r'\d+', filename)` match, as `int` (same as photos).
+- Filename → card number: first `re.search(r'\d+', os.path.splitext(filename)[0])` match (filename stem, extension excluded), as `int` (same as photos).
 - Process uploads sorted by filename; duplicate numbers keep the alphabetically-first file.
 - Check order per file: no number → `skipped_no_number`; number already used → `skipped_duplicate`; decode fails (any exception from `AudioSegment.from_file`) → `skipped_unreadable`. Not fail-fast.
 - Output is always `{num}.mp3` in `output_folder` (created if missing). If the upload's extension is `.mp3` (case-insensitive) and it decodes, write the **original bytes unchanged** (no re-encode). Otherwise export the decoded segment with `format="mp3"` (same call style as `extract_audio_clips`' `clip.export(out_path, format="mp3")`).

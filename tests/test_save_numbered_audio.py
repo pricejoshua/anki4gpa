@@ -86,3 +86,40 @@ def test_creates_missing_output_folder(tmp_path):
 
     assert result["saved"] == [1]
     assert os.path.exists(os.path.join(output_folder, "1.mp3"))
+
+
+def test_digits_in_extension_are_not_card_numbers(tmp_path):
+    uploads = [
+        ("intro.mp3", _audio_bytes("mp3")),
+        ("intro.m4a", _audio_bytes("wav")),
+    ]
+
+    result = save_numbered_audio(uploads, str(tmp_path))
+
+    assert sorted(result["skipped_no_number"]) == ["intro.m4a", "intro.mp3"]
+    assert result["saved"] == []
+    assert os.listdir(tmp_path) == []
+
+
+def test_number_taken_from_stem_with_digit_extension(tmp_path):
+    result = save_numbered_audio([("clip_3.m4a", _audio_bytes("wav"))], str(tmp_path))
+
+    assert result["saved"] == [3]
+    assert os.listdir(tmp_path) == ["3.mp3"]
+
+
+def test_partial_output_removed_when_export_fails(tmp_path, monkeypatch):
+    data = _audio_bytes("wav")
+
+    def bad_export(self, out_f, *a, **kw):
+        with open(out_f, "wb") as f:
+            f.write(b"junk")
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(AudioSegment, "export", bad_export)
+
+    result = save_numbered_audio([("5.wav", data)], str(tmp_path))
+
+    assert result["skipped_unreadable"] == ["5.wav"]
+    assert result["saved"] == []
+    assert os.listdir(tmp_path) == []
