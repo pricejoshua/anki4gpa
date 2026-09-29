@@ -115,3 +115,14 @@ def test_last_clip_end_clamped_to_audio_length():
 def test_non_last_span_end_unchanged():
     spans = plan_clip_spans(words_timed(LAST_PHRASE), 60000, 3000)
     assert spans[0]["end_ms"] == 10000  # start of "twelve"
+
+
+def test_last_clip_lead_too_long_uses_clip_duration():
+    spans = plan_clip_spans(words_timed("two@2-2.5 just@40-40.5 added@40.5-41"), 60000, 3000)
+    assert spans[-1]["start_ms"] == 2500
+    assert spans[-1]["end_ms"] == 2500 + 3000
+
+
+def test_last_clip_lead_under_cap_still_walks():
+    spans = plan_clip_spans(words_timed("two@2-2.5 just@7.4-7.9 added@7.9-8.5"), 60000, 3000)
+    assert spans[-1]["end_ms"] == 8800

@@ -150,6 +150,7 @@ def detect_number_at(words, i, last_accepted_number=0):
 MIN_GOOD_CLIP_MS = 300
 LAST_CLIP_PAUSE_MS = 1000
 LAST_CLIP_TAIL_MS = 300
+LAST_CLIP_MAX_LEAD_MS = 5000
 
 
 def _is_acceptable(words, j, skip, candidate, last):
@@ -187,10 +188,11 @@ def plan_clip_spans(words, audio_len_ms, clip_duration_ms):
     earlier spans. A clip runs from the end of its number word to the start
     of the next acceptable number. If there is none (the last clip), it runs
     to the end of the last word before a pause longer than LAST_CLIP_PAUSE_MS
-    (walking the words after the number; the gap between the number and the
-    first of them is not checked), plus LAST_CLIP_TAIL_MS. clip_duration_ms
-    past the number word is used only when no words follow it. All clamped to
-    the audio.
+    (walking the words after the number), plus LAST_CLIP_TAIL_MS. The gap
+    between the number and the first following word is not checked for a
+    pause, but if it exceeds LAST_CLIP_MAX_LEAD_MS the walk is skipped.
+    clip_duration_ms past the number word is used only when no words follow
+    it or that lead is too long. All clamped to the audio.
 
     Returns a list of dicts with keys number, start_ms, end_ms, position,
     word, match_type, score.
@@ -223,7 +225,7 @@ def plan_clip_spans(words, audio_len_ms, clip_duration_ms):
             end_ms = words[j]['start'] * 1000
         else:
             following = words[i + skip:]
-            if following:
+            if following and (following[0]['start'] * 1000 - start_ms) <= LAST_CLIP_MAX_LEAD_MS:
                 kept = following[0]
                 for w in following[1:]:
                     if (w['start'] - kept['end']) * 1000 > LAST_CLIP_PAUSE_MS:
@@ -395,13 +397,24 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
         api_key: API key for Groq/OpenAI (if not set in environment)
         progress_callback: Optional callback(percent, message)
         debug: Return detailed debug information
-        clip_duration_ms: Duration in milliseconds to extract after each number (default: 3000ms)
+        clip_duration_ms: Fallback length in milliseconds for the last clip, used when no words
+            follow its number or they start more than LAST_CLIP_MAX_LEAD_MS
+            later (default: 3000ms)
 
     Returns:
         Number of clips extracted, or (count, debug_info) if debug=True
     """
 
     os.makedirs(output_dir, exist_ok=True)
+
+    if api_type not in ("local", "groq", "openai"):
+        debug_info = {
+            'total_words': 0, 'transcription': '', 'first_20_words': [],
+            'detected_numbers': [], 'whisper_info': {},
+            'errors': [f"Invalid api_type: {api_type}. Must be 'local', 'groq', or 'openai'"],
+            'audio_duration': 0.0, 'api_type': api_type
+        }
+        return (0, debug_info) if debug else 0
 
     if progress_callback:
         progress_callback(10, "Loading audio file...")
@@ -414,66 +427,66 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
     temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
     temp_wav_path = temp_wav.name
     temp_wav.close()
-    audio.export(temp_wav_path, format='wav')
-
-    # Detailed debug info
-    debug_info = {
-        'total_words': 0,
-        'transcription': '',
-        'first_20_words': [],
-        'detected_numbers': [],
-        'whisper_info': {},
-        'errors': [],
-        'audio_duration': len(audio) / 1000.0,
-        'api_type': api_type
-    }
-
-    def transcribe(prompt):
-        if api_type == "local":
-            return transcribe_with_local_whisper(
-                temp_wav_path,
-                model_size=model_size,
-                use_vad=use_vad,
-                prompt=prompt
-            )
-        elif api_type == "groq":
-            return transcribe_with_groq(temp_wav_path, api_key=api_key, prompt=prompt)
-        elif api_type == "openai":
-            return transcribe_with_openai(temp_wav_path, api_key=api_key, prompt=prompt)
-        raise ValueError(f"Invalid api_type: {api_type}. Must be 'local', 'groq', or 'openai'")
-
-    # The number prompt helps larger models hear card numbers but can derail
-    # small ones, so retry without it unless the prompted pass found a
-    # complete sequence, and keep whichever pass yields more usable clips.
     best = None
-    for pass_name, prompt in (("number prompt", NUMBER_PROMPT), ("no prompt (fallback)", None)):
-        if progress_callback:
-            progress_callback(30, f"Transcribing audio with {api_type.upper()} Whisper ({pass_name})...")
-
-        try:
-            words, transcription, info = transcribe(prompt)
-        except Exception as e:
-            debug_info['errors'].append(f"Transcription error ({pass_name}): {str(e)}")
-            import traceback
-            debug_info['errors'].append(traceback.format_exc())
-            continue
-
-        if progress_callback:
-            progress_callback(40, f"Found {len(words)} words...")
-
-        spans = plan_clip_spans(words, len(audio), clip_duration_ms)
-        complete, good = score_spans(spans)
-        if best is None or good > best['good']:
-            best = {'pass': pass_name, 'words': words, 'transcription': transcription,
-                    'info': info, 'spans': spans, 'good': good}
-        if complete:
-            break
-
-    # Clean up temporary WAV file
     try:
-        os.unlink(temp_wav_path)
-    except:
-        pass
+        audio.export(temp_wav_path, format='wav')
+
+        # Detailed debug info
+        debug_info = {
+            'total_words': 0,
+            'transcription': '',
+            'first_20_words': [],
+            'detected_numbers': [],
+            'whisper_info': {},
+            'errors': [],
+            'audio_duration': len(audio) / 1000.0,
+            'api_type': api_type
+        }
+
+        def transcribe(prompt):
+            if api_type == "local":
+                return transcribe_with_local_whisper(
+                    temp_wav_path,
+                    model_size=model_size,
+                    use_vad=use_vad,
+                    prompt=prompt
+                )
+            elif api_type == "groq":
+                return transcribe_with_groq(temp_wav_path, api_key=api_key, prompt=prompt)
+            elif api_type == "openai":
+                return transcribe_with_openai(temp_wav_path, api_key=api_key, prompt=prompt)
+
+        # The number prompt helps larger models hear card numbers but can derail
+        # small ones, so retry without it unless the prompted pass found a
+        # complete sequence, and keep whichever pass yields more usable clips.
+        for pass_name, prompt in (("number prompt", NUMBER_PROMPT), ("no prompt (fallback)", None)):
+            if progress_callback:
+                progress_callback(30, f"Transcribing audio with {api_type.upper()} Whisper ({pass_name})...")
+
+            try:
+                words, transcription, info = transcribe(prompt)
+            except Exception as e:
+                debug_info['errors'].append(f"Transcription error ({pass_name}): {str(e)}")
+                import traceback
+                debug_info['errors'].append(traceback.format_exc())
+                continue
+
+            if progress_callback:
+                progress_callback(40, f"Found {len(words)} words...")
+
+            spans = plan_clip_spans(words, len(audio), clip_duration_ms)
+            complete, good = score_spans(spans)
+            if best is None or good > best['good']:
+                best = {'pass': pass_name, 'words': words, 'transcription': transcription,
+                        'info': info, 'spans': spans, 'good': good}
+            if complete:
+                break
+
+    finally:
+        try:
+            os.unlink(temp_wav_path)
+        except OSError:
+            pass
 
     if best is None:
         return (0, debug_info) if debug else 0

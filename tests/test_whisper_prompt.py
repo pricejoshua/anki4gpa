@@ -144,3 +144,12 @@ def test_falls_back_when_prompted_pass_fails(monkeypatch, tmp_path):
     assert count == 2
     assert any("boom" in e for e in debug_info["errors"])
     assert debug_info["whisper_info"]["pass"] == "no prompt (fallback)"
+
+
+def test_invalid_api_type_reported_once(tmp_path):
+    wav = tmp_path / "in.wav"
+    AudioSegment.silent(2000).export(str(wav), format="wav")
+    count, debug_info = audio_extractor.extract_audio_clips(
+        str(wav), str(tmp_path / "out"), api_type="bogus", debug=True)
+    assert count == 0
+    assert len([e for e in debug_info["errors"] if "Invalid api_type" in e]) == 1

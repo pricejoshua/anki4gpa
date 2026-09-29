@@ -105,6 +105,7 @@ Measured on the real recording's transcripts: the gap from the number to the fir
 ## Revision 2 Global Constraints
 
 - Constants: `LAST_CLIP_PAUSE_MS = 1000`, `LAST_CLIP_TAIL_MS = 300`.
+- Lead cap: `LAST_CLIP_MAX_LEAD_MS = 5000`; if the first `following` word starts more than 5000 ms after the number ends, skip the walk and use `number_end + clip_duration_ms` (clamped).
 - Applies only to a span with no following acceptable number (in practice the last span of the final sequence). All other span ends are unchanged.
 - Let `following` = the words after the number's last token (`words[i + skip:]`). If empty → keep today's `number_end + clip_duration_ms`.
 - Otherwise walk `following` from its first word: keep extending while the gap between the previous kept word's `end` and the next word's `start` is **≤ LAST_CLIP_PAUSE_MS** (strictly greater than 1000 ms stops). Clip end = last kept word's `end` + `LAST_CLIP_TAIL_MS`, clamped to `audio_len_ms` (and the existing `[0, audio_len_ms]` clamp).
