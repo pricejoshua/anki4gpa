@@ -199,7 +199,7 @@ with tab1:
                         temp_docx.close()
 
                         # Extract images
-                        extract_numbered_images(temp_docx.name, st.session_state.temp_images)
+                        result = extract_numbered_images(temp_docx.name, st.session_state.temp_images)
 
                         # Clean up temp docx
                         os.unlink(temp_docx.name)
@@ -211,6 +211,11 @@ with tab1:
                         )
 
                         st.success(f"Extracted {len(st.session_state.image_files)} images!")
+                        if result['skipped_unconvertible']:
+                            st.warning(
+                                "Skipped (image format can't be converted — e.g. Word ink or WMF/EMF drawings): "
+                                + ", ".join(result['skipped_unconvertible'])
+                            )
                 except Exception as e:
                     st.error(f"Error extracting images: {str(e)}")
     else:
