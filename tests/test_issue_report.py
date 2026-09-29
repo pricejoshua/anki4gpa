@@ -133,3 +133,44 @@ def test_clear_report_removes_dir_and_returns_fresh_state():
 def test_app_version_returns_string():
     v = ir.app_version()
     assert isinstance(v, str) and v
+
+
+def test_redact_recurses_into_lists_and_tuples():
+    """Nested list of dicts with secrets should be redacted."""
+    out = ir.redact({"providers": [{"api_key": "sk-1"}, {"api_key": "sk-2"}]})
+    assert out == {"providers": [{"api_key": "[redacted]"}, {"api_key": "[redacted]"}]}
+
+
+def test_redact_converts_tuple_to_list():
+    """Tuples should be converted to lists during redaction."""
+    out = ir.redact({"data": ({"token": "t"}, {"password": "p"})})
+    assert out == {"data": [{"token": "[redacted]"}, {"password": "[redacted]"}]}
+    assert isinstance(out["data"], list)
+
+
+def test_record_event_redacts_debug_dict():
+    """Debug dict with nested secrets should be redacted."""
+    state = ir.new_report_state()
+    try:
+        ir.record_event(state, "step", {}, {"x": [{"token": "secret"}]})
+        ev = state["events"][0]
+        assert ev["debug"] == {"x": [{"token": "[redacted]"}]}
+    finally:
+        ir.clear_report(state)
+
+
+def test_record_event_deep_copies_debug_to_prevent_mutation():
+    """Mutating original debug dict after record_event shouldn't change recorded event."""
+    state = ir.new_report_state()
+    try:
+        debug = {"x": [{"name": "val"}]}
+        ir.record_event(state, "step", {}, debug)
+        # Mutate the original debug dict
+        debug["x"][0]["name"] = "changed"
+        debug["y"] = "new"
+        # Recorded event should not be affected
+        ev = state["events"][0]
+        assert ev["debug"] == {"x": [{"name": "val"}]}
+        assert "y" not in ev["debug"]
+    finally:
+        ir.clear_report(state)

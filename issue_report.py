@@ -6,6 +6,7 @@ folders into a zip the user can send to the maintainer.
 Deliberately free of Streamlit so it can be unit-tested directly.
 """
 
+import copy
 import io
 import json
 import os
@@ -30,16 +31,23 @@ def new_report_state():
     return {"dir": report_dir, "events": [], "errors": [], "uploads": []}
 
 
+def _redact_value(v):
+    """Recursively redact values: recurse into dicts, lists, tuples (tuples become lists)."""
+    if isinstance(v, dict):
+        return redact(v)
+    if isinstance(v, (list, tuple)):
+        return [_redact_value(x) for x in v]
+    return v
+
+
 def redact(d):
     """Copy of d with secret-looking keys (recursively) replaced by "[redacted]"."""
     out = {}
     for k, v in d.items():
         if any(marker in str(k).lower() for marker in _REDACT_MARKERS):
             out[k] = "[redacted]"
-        elif isinstance(v, dict):
-            out[k] = redact(v)
         else:
-            out[k] = v
+            out[k] = _redact_value(v)
     return out
 
 
@@ -58,7 +66,16 @@ def record_upload(state, name, data):
 
 
 def record_event(state, step, settings, debug=None):
-    state["events"].append({"step": step, "time": _now(), "settings": redact(settings), "debug": debug})
+    # Deep copy debug to prevent caller mutations from affecting the recorded event
+    debug_snapshot = debug
+    if isinstance(debug, dict):
+        try:
+            debug_snapshot = copy.deepcopy(debug)
+        except Exception:
+            # Fall back to original if deepcopy fails
+            debug_snapshot = debug
+        debug_snapshot = _redact_value(debug_snapshot)
+    state["events"].append({"step": step, "time": _now(), "settings": redact(settings), "debug": debug_snapshot})
 
 
 def record_error(state, step, exc):
