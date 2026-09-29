@@ -13,7 +13,7 @@ from io import BytesIO
 
 # Import our custom modules
 from image_extractor import extract_numbered_images, save_numbered_photos
-from audio_extractor import extract_audio_clips
+from audio_extractor import extract_audio_clips, save_numbered_audio
 from file_pairer import pair_files
 from deck_creator import create_anki_deck
 
@@ -286,144 +286,203 @@ with tab1:
 # ============================================================================
 with tab2:
     st.header("Extract Audio Clips")
-    st.markdown("Upload an audio file (MP3/AAC/M4A) to extract numbered vocabulary clips")
-    with st.popover("Settings"):
-
-        # API Type Selection
-        api_type = st.selectbox(
-            "Whisper API",
-            ["local", "groq", "openai"],
-            format_func=lambda x: {
-                "local": "Local (faster-whisper)",
-                "groq": "Groq API (fastest)",
-                "openai": "OpenAI API"
-            }[x],
-            help="Choose which Whisper API to use for transcription"
-        )
-
-        # Model size only for local
-        if api_type == "local":
-            model_size = st.selectbox("Model Size", ["tiny", "base", "small", "medium", "large"], index=2)
-            use_vad = st.checkbox("Use VAD Filter", value=False, help="Voice Activity Detection - disable if getting 0 words transcribed")
-        else:
-            model_size = "small"  # Default, not used for API
-            use_vad = False
-            api_key = st.text_input(
-                f"{api_type.upper()} API Key",
-                type="password",
-                help=f"Enter your {api_type.upper()} API key or set {api_type.upper()}_API_KEY environment variable"
-            )
-
-        buffer_ms = st.number_input("Buffer (ms)", min_value=0, max_value=1000, value=400, step=50)
-        debug_mode = st.checkbox("Show Debug Info", value=True, help="Display transcription details for troubleshooting")
-        
-
-    audio_file = st.file_uploader(
-        "Upload Audio File",
-        type=['mp3', 'aac', 'm4a', 'wav'],
-        key='audio',
-        help="Drag and drop a file or click Browse files"
+    audio_source = st.radio(
+        "Audio source",
+        ["🎙️ Extract from Recording", "🔊 Upload Audio Clips Directly"],
+        key="audio_source_mode",
+        horizontal=True,
     )
 
+    if audio_source == "🎙️ Extract from Recording":
+        st.markdown("Upload an audio file (MP3/AAC/M4A) to extract numbered vocabulary clips")
+        with st.popover("Settings"):
 
-    if st.button("Extract Audio Clips", key='extract_audio_btn'):
-        if audio_file is None:
-            st.error("Please upload an audio file first")
-        else:
-            try:
-                api_label = {"local": f"Local Whisper ({model_size})", "groq": "Groq API", "openai": "OpenAI API"}[api_type]
-                with st.spinner(f"Processing audio with {api_label}... This may take a few minutes."):
-                    # Create temp directory for audio
-                    if st.session_state.temp_audio:
-                        shutil.rmtree(st.session_state.temp_audio, ignore_errors=True)
-                    st.session_state.temp_audio = tempfile.mkdtemp(prefix="anki_audio_")
+            # API Type Selection
+            api_type = st.selectbox(
+                "Whisper API",
+                ["local", "groq", "openai"],
+                format_func=lambda x: {
+                    "local": "Local (faster-whisper)",
+                    "groq": "Groq API (fastest)",
+                    "openai": "OpenAI API"
+                }[x],
+                help="Choose which Whisper API to use for transcription"
+            )
 
-                    # Save uploaded file temporarily
-                    temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1])
-                    temp_audio.write(audio_file.getvalue())
-                    temp_audio.close()
+            # Model size only for local
+            if api_type == "local":
+                model_size = st.selectbox("Model Size", ["tiny", "base", "small", "medium", "large"], index=2)
+                use_vad = st.checkbox("Use VAD Filter", value=False, help="Voice Activity Detection - disable if getting 0 words transcribed")
+            else:
+                model_size = "small"  # Default, not used for API
+                use_vad = False
+                api_key = st.text_input(
+                    f"{api_type.upper()} API Key",
+                    type="password",
+                    help=f"Enter your {api_type.upper()} API key or set {api_type.upper()}_API_KEY environment variable"
+                )
 
-                    # Extract audio clips
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
+            buffer_ms = st.number_input("Buffer (ms)", min_value=0, max_value=1000, value=400, step=50)
+            debug_mode = st.checkbox("Show Debug Info", value=True, help="Display transcription details for troubleshooting")
+        
 
-                    # Get API key if using API
-                    current_api_key = api_key if api_type != "local" else None
+        audio_file = st.file_uploader(
+            "Upload Audio File",
+            type=['mp3', 'aac', 'm4a', 'wav'],
+            key='audio',
+            help="Drag and drop a file or click Browse files"
+        )
 
-                    result = extract_audio_clips(
-                        temp_audio.name,
-                        st.session_state.temp_audio,
-                        model_size=model_size,
-                        buffer_ms=buffer_ms,
-                        use_vad=use_vad,
-                        api_type=api_type,
-                        api_key=current_api_key,
-                        progress_callback=lambda p, s: (progress_bar.progress(p), status_text.text(s)),
-                        debug=debug_mode
-                    )
 
-                    if debug_mode and isinstance(result, tuple):
-                        clip_count, debug_info = result
-                    else:
-                        clip_count = result if isinstance(result, int) else result[0]
-                        debug_info = None
+        if st.button("Extract Audio Clips", key='extract_audio_btn'):
+            if audio_file is None:
+                st.error("Please upload an audio file first")
+            else:
+                try:
+                    api_label = {"local": f"Local Whisper ({model_size})", "groq": "Groq API", "openai": "OpenAI API"}[api_type]
+                    with st.spinner(f"Processing audio with {api_label}... This may take a few minutes."):
+                        # Create temp directory for audio
+                        if st.session_state.temp_audio:
+                            shutil.rmtree(st.session_state.temp_audio, ignore_errors=True)
+                        st.session_state.temp_audio = tempfile.mkdtemp(prefix="anki_audio_")
 
-                    # Clean up temp audio file
-                    os.unlink(temp_audio.name)
+                        # Save uploaded file temporarily
+                        temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1])
+                        temp_audio.write(audio_file.getvalue())
+                        temp_audio.close()
 
-                    # Get list of extracted files
-                    st.session_state.audio_files = sorted(
-                        [f for f in os.listdir(st.session_state.temp_audio) if f.endswith('.mp3')],
-                        key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
-                    )
+                        # Extract audio clips
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
 
-                    progress_bar.progress(100)
-                    status_text.text("Complete!")
+                        # Get API key if using API
+                        current_api_key = api_key if api_type != "local" else None
 
-                    if clip_count == 0:
-                        st.warning(f"Extracted 0 audio clips!")
-                    else:
-                        st.success(f"Extracted {len(st.session_state.audio_files)} audio clips!")
+                        result = extract_audio_clips(
+                            temp_audio.name,
+                            st.session_state.temp_audio,
+                            model_size=model_size,
+                            buffer_ms=buffer_ms,
+                            use_vad=use_vad,
+                            api_type=api_type,
+                            api_key=current_api_key,
+                            progress_callback=lambda p, s: (progress_bar.progress(p), status_text.text(s)),
+                            debug=debug_mode
+                        )
 
-                    # Display debug info
-                    if debug_mode and debug_info:
-                        with st.expander("Debug Information", expanded=(clip_count == 0)):
-                            st.write(f"**API Type:** {debug_info.get('api_type', 'unknown').upper()}")
-                            st.write(f"**Audio Duration:** {debug_info.get('audio_duration', 0):.2f} seconds")
+                        if debug_mode and isinstance(result, tuple):
+                            clip_count, debug_info = result
+                        else:
+                            clip_count = result if isinstance(result, int) else result[0]
+                            debug_info = None
 
-                            st.write("**Whisper Info:**")
-                            whisper_info = debug_info.get('whisper_info', {})
-                            st.write(f"  - Language detected: {whisper_info.get('language', 'unknown')}")
-                            st.write(f"  - Duration: {whisper_info.get('duration', 0):.2f}s")
+                        # Clean up temp audio file
+                        os.unlink(temp_audio.name)
 
-                            st.write(f"**Segments found:** {debug_info.get('segment_count', 0)}")
-                            st.write(f"**Total words transcribed:** {debug_info['total_words']}")
-                            st.write(f"**Detected numbers:** {len(debug_info['detected_numbers'])}")
+                        # Get list of extracted files
+                        st.session_state.audio_files = sorted(
+                            [f for f in os.listdir(st.session_state.temp_audio) if f.endswith('.mp3')],
+                            key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
+                        )
 
-                            if debug_info.get('errors'):
-                                st.error("**Errors:**")
-                                for error in debug_info['errors']:
-                                    st.text(error)
+                        progress_bar.progress(100)
+                        status_text.text("Complete!")
 
-                            st.write("**Full Transcription:**")
-                            st.text_area("Transcription", debug_info['transcription'], height=100)
+                        if clip_count == 0:
+                            st.warning(f"Extracted 0 audio clips!")
+                        else:
+                            st.success(f"Extracted {len(st.session_state.audio_files)} audio clips!")
 
-                            if debug_info['first_20_words']:
-                                st.write("**First 20 words (with normalized form):**")
-                                for word in debug_info['first_20_words']:
-                                    st.text(word)
+                        # Display debug info
+                        if debug_mode and debug_info:
+                            with st.expander("Debug Information", expanded=(clip_count == 0)):
+                                st.write(f"**API Type:** {debug_info.get('api_type', 'unknown').upper()}")
+                                st.write(f"**Audio Duration:** {debug_info.get('audio_duration', 0):.2f} seconds")
 
-                            if debug_info['detected_numbers']:
-                                st.write("**Detected Numbers:**")
-                                for num_info in debug_info['detected_numbers']:
-                                    st.text(f"Number {num_info['number']} at position {num_info['position']}: '{num_info['word']}' ({num_info['match_type']}, score {num_info['score']})")
-                            else:
-                                st.error("No numbers detected! Check if the audio contains spoken numbers like 'one', 'two', 'number one', etc.")
+                                st.write("**Whisper Info:**")
+                                whisper_info = debug_info.get('whisper_info', {})
+                                st.write(f"  - Language detected: {whisper_info.get('language', 'unknown')}")
+                                st.write(f"  - Duration: {whisper_info.get('duration', 0):.2f}s")
 
-            except Exception as e:
-                st.error(f"Error extracting audio: {str(e)}")
-                import traceback
-                st.code(traceback.format_exc())
+                                st.write(f"**Segments found:** {debug_info.get('segment_count', 0)}")
+                                st.write(f"**Total words transcribed:** {debug_info['total_words']}")
+                                st.write(f"**Detected numbers:** {len(debug_info['detected_numbers'])}")
+
+                                if debug_info.get('errors'):
+                                    st.error("**Errors:**")
+                                    for error in debug_info['errors']:
+                                        st.text(error)
+
+                                st.write("**Full Transcription:**")
+                                st.text_area("Transcription", debug_info['transcription'], height=100)
+
+                                if debug_info['first_20_words']:
+                                    st.write("**First 20 words (with normalized form):**")
+                                    for word in debug_info['first_20_words']:
+                                        st.text(word)
+
+                                if debug_info['detected_numbers']:
+                                    st.write("**Detected Numbers:**")
+                                    for num_info in debug_info['detected_numbers']:
+                                        st.text(f"Number {num_info['number']} at position {num_info['position']}: '{num_info['word']}' ({num_info['match_type']}, score {num_info['score']})")
+                                else:
+                                    st.error("No numbers detected! Check if the audio contains spoken numbers like 'one', 'two', 'number one', etc.")
+
+                except Exception as e:
+                    st.error(f"Error extracting audio: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
+    else:
+        st.markdown(
+            "Upload individual audio clips named with their card number, e.g. `1.mp3`, `2.mp3` — "
+            "the first number found anywhere in the filename is used, so `clip_3.m4a` or "
+            "`word-3.wav` both become card 3. Non-MP3 files are converted to MP3."
+        )
+
+        audio_clip_files = st.file_uploader(
+            "Upload Audio Clips",
+            type=['mp3', 'm4a', 'aac', 'wav', 'ogg', 'flac'],
+            accept_multiple_files=True,
+            key='audio_clips',
+            help="Drag and drop files or click Browse files"
+        )
+
+        if st.button("Use These Audio Files", key='use_audio_clips_btn'):
+            if not audio_clip_files:
+                st.error("Please upload audio files first")
+            else:
+                try:
+                    with st.spinner("Processing audio files..."):
+                        if st.session_state.temp_audio:
+                            shutil.rmtree(st.session_state.temp_audio, ignore_errors=True)
+                        st.session_state.temp_audio = tempfile.mkdtemp(prefix="anki_audio_")
+
+                        uploads = [(f.name, f.getvalue()) for f in audio_clip_files]
+                        result = save_numbered_audio(uploads, st.session_state.temp_audio)
+
+                        st.session_state.audio_files = sorted(
+                            [f for f in os.listdir(st.session_state.temp_audio) if f.endswith('.mp3')],
+                            key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
+                        )
+
+                        st.success(f"Loaded {len(result['saved'])} audio clips!")
+                        if result['skipped_no_number']:
+                            st.warning(
+                                "Skipped (no number found in filename): "
+                                + ", ".join(result['skipped_no_number'])
+                            )
+                        if result['skipped_duplicate']:
+                            st.warning(
+                                "Skipped (duplicate number, first one kept): "
+                                + ", ".join(result['skipped_duplicate'])
+                            )
+                        if result['skipped_unreadable']:
+                            st.warning(
+                                "Skipped (unreadable audio file): "
+                                + ", ".join(result['skipped_unreadable'])
+                            )
+                except Exception as e:
+                    st.error(f"Error processing audio files: {str(e)}")
 
     # Display extracted audio clips
     if st.session_state.audio_files:

@@ -6,6 +6,7 @@ Supports: Local (faster-whisper), Groq API, OpenAI API
 
 import os
 import re
+from io import BytesIO
 from pydub import AudioSegment
 from rapidfuzz import fuzz
 
@@ -437,6 +438,74 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
         pass
 
     return (saved, debug_info) if debug else saved
+
+
+def save_numbered_audio(uploads, output_folder):
+    """
+    Saves directly-uploaded audio clips as numbered MP3s, mirroring the
+    output format of extract_audio_clips() so downstream pairing/export
+    code needs no source-specific handling.
+
+    Uploads with an .mp3 extension are written unchanged (no re-encode);
+    other formats are decoded and exported as MP3.
+
+    Args:
+        uploads: list of (filename, bytes) tuples
+        output_folder: directory to write numbered MP3s into (created if missing)
+
+    Returns:
+        dict with keys:
+            'saved': sorted list of int card numbers successfully written
+            'skipped_no_number': list of filenames with no digit in the
+                filename (excluding extension)
+            'skipped_duplicate': list of filenames whose number was already
+                claimed by an earlier (alphabetically-first) file
+            'skipped_unreadable': list of filenames pydub/ffmpeg could not decode
+    """
+    os.makedirs(output_folder, exist_ok=True)
+
+    result = {
+        'saved': [],
+        'skipped_no_number': [],
+        'skipped_duplicate': [],
+        'skipped_unreadable': [],
+    }
+
+    used_numbers = set()
+
+    for filename, data in sorted(uploads, key=lambda u: u[0]):
+        match = re.search(r'\d+', os.path.splitext(filename)[0])
+        if not match:
+            result['skipped_no_number'].append(filename)
+            continue
+
+        num = int(match.group())
+        if num in used_numbers:
+            result['skipped_duplicate'].append(filename)
+            continue
+
+        out_path = os.path.join(output_folder, f"{num}.mp3")
+        try:
+            clip = AudioSegment.from_file(BytesIO(data))
+            if filename.lower().endswith(".mp3"):
+                with open(out_path, "wb") as f:
+                    f.write(data)
+            else:
+                clip.export(out_path, format="mp3")
+        except Exception:
+            try:
+                if os.path.exists(out_path):
+                    os.remove(out_path)
+            except OSError:
+                pass
+            result['skipped_unreadable'].append(filename)
+            continue
+
+        used_numbers.add(num)
+        result['saved'].append(num)
+
+    result['saved'].sort()
+    return result
 
 
 if __name__ == "__main__":
