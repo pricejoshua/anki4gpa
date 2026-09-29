@@ -37,6 +37,11 @@ def word_forms_for(number):
     return forms
 
 
+# Spoken forms of 1..30, used to bias Whisper toward transcribing card numbers
+# (otherwise e.g. "nine" in mixed English/Farsi audio is often misheard).
+NUMBER_PROMPT = ", ".join(word_forms_for(n)[-1] for n in range(1, 31)).capitalize() + "."
+
+
 def fuzzy_score_for(token, candidate_number):
     """Best rapidfuzz similarity ratio (0-100) between token and candidate_number's
     known spoken forms. Returns 0 if token is too short or purely numeric to be a
@@ -151,7 +156,8 @@ def transcribe_with_local_whisper(audio_path, model_size="small", use_vad=False)
         audio_path,
         word_timestamps=True,
         vad_filter=use_vad,
-        language="en"
+        language="en",
+        initial_prompt=NUMBER_PROMPT
     )
 
     # Convert to list and extract words
@@ -195,7 +201,8 @@ def transcribe_with_groq(audio_path, api_key=None):
             model="whisper-large-v3",
             file=audio_file,
             response_format="verbose_json",
-            timestamp_granularities=["word"]
+            timestamp_granularities=["word"],
+            prompt=NUMBER_PROMPT
         )
 
     # Extract words with timestamps
@@ -232,7 +239,8 @@ def transcribe_with_openai(audio_path, api_key=None):
             model="whisper-1",
             file=audio_file,
             response_format="verbose_json",
-            timestamp_granularities=["word"]
+            timestamp_granularities=["word"],
+            prompt=NUMBER_PROMPT
         )
 
     # Extract words with timestamps
@@ -373,6 +381,7 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
                         os.remove(file_path)
                     except:
                         pass
+                saved -= len(created_files)
                 created_files = []
             # Reset counter when we encounter "1" (allows multiple takes)
             last_accepted_number = 0
