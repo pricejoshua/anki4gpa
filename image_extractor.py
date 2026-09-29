@@ -21,8 +21,25 @@ _PLAIN_NUMBER_RE = re.compile(r'^(\d+)[.)]?$')
 def _plain_number(p):
     """Return the label string if paragraph p is just a number ('7', '7.', '7)'), else None."""
     texts = [t.text for t in p.findall('.//w:t', _W_NS_MAP) if t.text and t.text.strip()]
-    m = _PLAIN_NUMBER_RE.match(" ".join(texts).strip())
+    m = _PLAIN_NUMBER_RE.match("".join(texts).strip())
     return m.group(1) if m else None
+
+
+def _wrapped_children(parent, tag):
+    """Direct children of `parent` with `tag`, including ones inside w:sdt/w:sdtContent wrappers."""
+    for child in parent:
+        if child.tag == f'{{{W_NS}}}{tag}':
+            yield child
+        elif child.tag == f'{{{W_NS}}}sdt':
+            for content in child.findall('w:sdtContent', _W_NS_MAP):
+                yield from _wrapped_children(content, tag)
+
+
+def _nearest_ancestor(el, tag, parents):
+    el = parents.get(el)
+    while el is not None and el.tag != f'{{{W_NS}}}{tag}':
+        el = parents.get(el)
+    return el
 
 
 def _span(tc):
@@ -38,7 +55,7 @@ def _cell_columns(row):
     """Map each direct w:tc of a row to its starting grid column (honouring gridSpan)."""
     cols = {}
     col = 0
-    for tc in row.findall('w:tc', _W_NS_MAP):
+    for tc in _wrapped_children(row, 'tc'):
         cols[tc] = col
         col += _span(tc)
     return cols
@@ -59,9 +76,7 @@ def _table_label(p, parents):
     same cell, else the nearest number above it in the same grid column.
     Returns None if p isn't in a table or no label is found.
     """
-    tc = parents.get(p)
-    while tc is not None and tc.tag != f'{{{W_NS}}}tc':
-        tc = parents.get(tc)
+    tc = _nearest_ancestor(p, 'tc', parents)
     if tc is None:
         return None
 
@@ -77,12 +92,15 @@ def _table_label(p, parents):
         return label
 
     # Rule 2: walk up the rows of the innermost table at the same grid column
-    row = parents.get(tc)
-    table = parents.get(row)
+    row = _nearest_ancestor(tc, 'tr', parents)
+    table = _nearest_ancestor(row, 'tbl', parents) if row is not None else None
     if row is None or table is None:
         return None
-    col = _cell_columns(row)[tc]
-    rows = table.findall('w:tr', _W_NS_MAP)
+    rows = list(_wrapped_children(table, 'tr'))
+    columns = _cell_columns(row)
+    if row not in rows or tc not in columns:
+        return None
+    col = columns[tc]
     for above in reversed(rows[:rows.index(row)]):
         for cell, start in _cell_columns(above).items():
             if start <= col < start + _span(cell):

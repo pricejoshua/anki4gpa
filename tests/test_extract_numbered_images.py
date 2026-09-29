@@ -156,3 +156,33 @@ def test_returns_count_dict(tmp_path):
     result, out = _run(tmp_path, body, _rgb_media())
     assert result["count"] == len(os.listdir(out)) == 2
     assert result["skipped_unconvertible"] == []
+
+
+def _runs(*parts):
+    return '<w:p>' + "".join(f'<w:r><w:t>{t}</w:t></w:r>' for t in parts) + '</w:p>'
+
+
+def test_label_split_across_runs(tmp_path):
+    body = _table(_row(
+        _cell(_runs("1", "5"), _img("rId1")),
+        _cell(_runs("12", "."), _img("rId2")),
+    ))
+    _, out = _run(tmp_path, body, _rgb_media())
+    assert sorted(os.listdir(out)) == ["12.png", "15.png"]
+    assert _color_of(out / "15.png") == RED
+    assert _color_of(out / "12.png") == GREEN
+
+
+def _sdt(inner):
+    return f'<w:sdt><w:sdtContent>{inner}</w:sdtContent></w:sdt>'
+
+
+def test_cells_wrapped_in_content_controls(tmp_path):
+    body = _table(
+        _row(_sdt(_cell(_text("1"))), _sdt(_cell(_text("2")))),
+        _row(_sdt(_cell(_img("rId1"))), _sdt(_cell(_img("rId2")))),
+    )
+    _, out = _run(tmp_path, body, _rgb_media())
+    assert sorted(os.listdir(out)) == ["1.png", "2.png"]
+    assert _color_of(out / "1.png") == RED
+    assert _color_of(out / "2.png") == GREEN
