@@ -186,3 +186,26 @@ def test_cells_wrapped_in_content_controls(tmp_path):
     assert sorted(os.listdir(out)) == ["1.png", "2.png"]
     assert _color_of(out / "1.png") == RED
     assert _color_of(out / "2.png") == GREEN
+
+
+def _label_img(label, rid):
+    return f'<w:p><w:r><w:t>{label}</w:t></w:r><w:r><w:drawing><a:blip r:embed="{rid}"/></w:drawing></w:r></w:p>'
+
+
+def test_label_and_image_in_same_paragraph_with_row_above(tmp_path):
+    body = _table(
+        _row(_cell(_label_img("1", "rId1")), _cell(_label_img("2", "rId2"))),
+        _row(_cell(_label_img("3", "rId3"))),
+    )
+    _, out = _run(tmp_path, body, _rgb_media())
+    assert sorted(os.listdir(out)) == ["1.png", "2.png", "3.png"]
+    assert _color_of(out / "1.png") == RED
+    assert _color_of(out / "2.png") == GREEN
+    assert _color_of(out / "3.png") == BLUE
+
+
+def test_table_with_no_label_falls_through_to_paragraph_label(tmp_path):
+    body = _text("4.") + _table(_row(_cell(_img("rId1"))))
+    _, out = _run(tmp_path, body, _rgb_media())
+    assert os.listdir(out) == ["4.png"]
+    assert _color_of(out / "4.png") == RED

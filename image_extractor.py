@@ -83,11 +83,11 @@ def _table_label(p, parents):
     # Rule 1: nearest preceding plain-number paragraph in the same cell
     label = None
     for q in tc.iter(f'{{{W_NS}}}p'):
-        if q is p:
-            break
         found = _plain_number(q)
         if found is not None:
             label = found
+        if q is p:
+            break
     if label is not None:
         return label
 
@@ -229,6 +229,8 @@ def extract_numbered_images(docx_path, output_folder, convert_to_png=True):
                         img.convert("RGBA").save(path, format="PNG")
                 except Exception:
                     # e.g. WMF/EMF ink drawings: don't write a fake .png
+                    if os.path.exists(path):
+                        os.remove(path)
                     skipped.append(target)
                     continue
             else:
