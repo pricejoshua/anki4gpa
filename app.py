@@ -64,6 +64,15 @@ if 'paired_files' not in st.session_state:
 if 'issue_report' not in st.session_state:
     st.session_state.issue_report = issue_report.new_report_state()
 
+
+def _report(fn, *args):
+    """Call an issue_report recorder; diagnostics must never break the app."""
+    try:
+        fn(st.session_state.issue_report, *args)
+    except Exception as e:
+        print(f"[issue_report] {fn.__name__} failed: {e}")
+
+
 # Header
 st.title("📚 Anki Deck Creator")
 st.markdown("Create Anki flashcard decks from Word documents and audio files")
@@ -191,8 +200,7 @@ with tab1:
                 st.error("Please upload a Word document first")
             else:
                 try:
-                    rep = st.session_state.issue_report
-                    issue_report.record_upload(rep, docx_file.name, docx_file.getvalue())
+                    _report(issue_report.record_upload, docx_file.name, docx_file.getvalue())
                     with st.spinner("Extracting images..."):
                         # Create temp directory for images
                         if st.session_state.temp_images:
@@ -216,8 +224,7 @@ with tab1:
                             key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
                         )
 
-                        issue_report.record_event(
-                            rep, "extract_images", {"file": docx_file.name},
+                        _report(issue_report.record_event, "extract_images", {"file": docx_file.name},
                             {"count": result["count"],
                              "skipped_unconvertible": result["skipped_unconvertible"],
                              "files": st.session_state.image_files},
@@ -230,7 +237,7 @@ with tab1:
                                 + ", ".join(result['skipped_unconvertible'])
                             )
                 except Exception as e:
-                    issue_report.record_error(st.session_state.issue_report, "extract_images", e)
+                    _report(issue_report.record_error, "extract_images", e)
                     st.error(f"Error extracting images: {str(e)}")
     else:
         st.markdown(
@@ -252,7 +259,6 @@ with tab1:
                 st.error("Please upload photo files first")
             else:
                 try:
-                    rep = st.session_state.issue_report
                     with st.spinner("Processing photos..."):
                         if st.session_state.temp_images:
                             shutil.rmtree(st.session_state.temp_images, ignore_errors=True)
@@ -260,9 +266,9 @@ with tab1:
 
                         uploads = [(f.name, f.getvalue()) for f in photo_files]
                         for _n, _d in uploads:
-                            issue_report.record_upload(rep, _n, _d)
+                            _report(issue_report.record_upload, _n, _d)
                         result = save_numbered_photos(uploads, st.session_state.temp_images)
-                        issue_report.record_event(rep, "use_photos", {"files": [n for n, _ in uploads]}, result)
+                        _report(issue_report.record_event, "use_photos", {"files": [n for n, _ in uploads]}, result)
 
                         st.session_state.image_files = sorted(
                             [f for f in os.listdir(st.session_state.temp_images) if f.endswith('.png')],
@@ -286,7 +292,7 @@ with tab1:
                                 + ", ".join(result['skipped_unreadable'])
                             )
                 except Exception as e:
-                    issue_report.record_error(st.session_state.issue_report, "use_photos", e)
+                    _report(issue_report.record_error, "use_photos", e)
                     st.error(f"Error processing photos: {str(e)}")
 
     # Display extracted images (shared by both image sources above)
@@ -358,8 +364,7 @@ with tab2:
                 st.error("Please upload an audio file first")
             else:
                 try:
-                    rep = st.session_state.issue_report
-                    issue_report.record_upload(rep, audio_file.name, audio_file.getvalue())
+                    _report(issue_report.record_upload, audio_file.name, audio_file.getvalue())
                     api_label = {"local": f"Local Whisper ({model_size})", "groq": "Groq API", "openai": "OpenAI API"}[api_type]
                     with st.spinner(f"Processing audio with {api_label}... This may take a few minutes."):
                         # Create temp directory for audio
@@ -388,17 +393,12 @@ with tab2:
                             api_type=api_type,
                             api_key=current_api_key,
                             progress_callback=lambda p, s: (progress_bar.progress(p), status_text.text(s)),
-                            debug=debug_mode
+                            debug=True  # always collect debug info for the issue report
                         )
 
-                        if debug_mode and isinstance(result, tuple):
-                            clip_count, debug_info = result
-                        else:
-                            clip_count = result if isinstance(result, int) else result[0]
-                            debug_info = None
+                        clip_count, debug_info = result
 
-                        issue_report.record_event(
-                            rep, "extract_audio",
+                        _report(issue_report.record_event, "extract_audio",
                             {"file": audio_file.name, "api_type": api_type, "model_size": model_size,
                              "use_vad": use_vad, "buffer_ms": buffer_ms, "api_key": current_api_key},
                             debug_info,
@@ -458,7 +458,7 @@ with tab2:
                                     st.error("No numbers detected! Check if the audio contains spoken numbers like 'one', 'two', 'number one', etc.")
 
                 except Exception as e:
-                    issue_report.record_error(st.session_state.issue_report, "extract_audio", e)
+                    _report(issue_report.record_error, "extract_audio", e)
                     st.error(f"Error extracting audio: {str(e)}")
                     import traceback
                     st.code(traceback.format_exc())
@@ -482,7 +482,6 @@ with tab2:
                 st.error("Please upload audio files first")
             else:
                 try:
-                    rep = st.session_state.issue_report
                     with st.spinner("Processing audio files..."):
                         if st.session_state.temp_audio:
                             shutil.rmtree(st.session_state.temp_audio, ignore_errors=True)
@@ -490,9 +489,9 @@ with tab2:
 
                         uploads = [(f.name, f.getvalue()) for f in audio_clip_files]
                         for _n, _d in uploads:
-                            issue_report.record_upload(rep, _n, _d)
+                            _report(issue_report.record_upload, _n, _d)
                         result = save_numbered_audio(uploads, st.session_state.temp_audio)
-                        issue_report.record_event(rep, "use_audio_clips", {"files": [n for n, _ in uploads]}, result)
+                        _report(issue_report.record_event, "use_audio_clips", {"files": [n for n, _ in uploads]}, result)
 
                         st.session_state.audio_files = sorted(
                             [f for f in os.listdir(st.session_state.temp_audio) if f.endswith('.mp3')],
@@ -516,7 +515,7 @@ with tab2:
                                 + ", ".join(result['skipped_unreadable'])
                             )
                 except Exception as e:
-                    issue_report.record_error(st.session_state.issue_report, "use_audio_clips", e)
+                    _report(issue_report.record_error, "use_audio_clips", e)
                     st.error(f"Error processing audio files: {str(e)}")
 
     # Display extracted audio clips
@@ -580,14 +579,13 @@ with tab3:
                     )
 
                     st.session_state.paired_files = paired
-                    issue_report.record_event(
-                        st.session_state.issue_report, "pair_files", {},
+                    _report(issue_report.record_event, "pair_files", {},
                         {"pairs": [(n, os.path.basename(a), os.path.basename(i))
                                    for n, a, i in st.session_state.paired_files]},
                     )
                     st.success(f"Paired {len(paired)} files!")
             except Exception as e:
-                issue_report.record_error(st.session_state.issue_report, "pair_files", e)
+                _report(issue_report.record_error, "pair_files", e)
                 st.error(f"Error pairing files: {str(e)}")
 
     # Display paired files
@@ -633,9 +631,9 @@ with tab3:
                             if os.path.exists(image_path):
                                 os.remove(image_path)
                         except Exception as e:
+                            _report(issue_report.record_error, "remove_pair", e)
                             st.error(f"Error removing files: {str(e)}")
-                        issue_report.record_event(
-                            st.session_state.issue_report, "remove_pair", {"number": num, "target": None})
+                        _report(issue_report.record_event, "remove_pair", {"number": num, "target": None})
                         st.rerun()
 
                 with mgmt_col2:
@@ -657,8 +655,7 @@ with tab3:
                                 pairs[idx] = (pairs[idx][0], pairs[target_idx][1], pairs[idx][2])
                                 pairs[target_idx] = (pairs[target_idx][0], audio_path, pairs[target_idx][2])
                                 st.session_state.paired_files = pairs
-                                issue_report.record_event(
-                                    st.session_state.issue_report, "swap_audio",
+                                _report(issue_report.record_event, "swap_audio",
                                     {"number": num, "target": swap_audio_target})
                                 st.success(f"Swapped audio between Card {num} and Card {swap_audio_target}")
                                 st.rerun()
@@ -680,8 +677,7 @@ with tab3:
                                 pairs[idx] = (pairs[idx][0], pairs[idx][1], pairs[target_idx][2])
                                 pairs[target_idx] = (pairs[target_idx][0], pairs[target_idx][1], image_path)
                                 st.session_state.paired_files = pairs
-                                issue_report.record_event(
-                                    st.session_state.issue_report, "swap_image",
+                                _report(issue_report.record_event, "swap_image",
                                     {"number": num, "target": swap_image_target})
                                 st.success(f"Swapped image between Card {num} and Card {swap_image_target}")
                                 st.rerun()
@@ -785,8 +781,7 @@ with tab4:
                         card_style=card_style
                     )
 
-                    issue_report.record_event(
-                        st.session_state.issue_report, "create_deck",
+                    _report(issue_report.record_event, "create_deck",
                         {"card_style": card_style, "deck_name": deck_name, "tags": tags,
                          "unit_session": unit_session},
                         {"pairs": len(st.session_state.paired_files)},
@@ -811,7 +806,7 @@ with tab4:
                         mime="application/apkg"
                     )
             except Exception as e:
-                issue_report.record_error(st.session_state.issue_report, "create_deck", e)
+                _report(issue_report.record_error, "create_deck", e)
                 st.error(f"Error creating deck: {str(e)}")
 
 # Sidebar with documentation and utilities
