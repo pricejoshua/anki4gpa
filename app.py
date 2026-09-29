@@ -403,6 +403,7 @@ with tab2:
                                 whisper_info = debug_info.get('whisper_info', {})
                                 st.write(f"  - Language detected: {whisper_info.get('language', 'unknown')}")
                                 st.write(f"  - Duration: {whisper_info.get('duration', 0):.2f}s")
+                                st.write(f"  - Transcription pass: {whisper_info.get('pass', 'n/a')}")
 
                                 st.write(f"**Segments found:** {debug_info.get('segment_count', 0)}")
                                 st.write(f"**Total words transcribed:** {debug_info['total_words']}")

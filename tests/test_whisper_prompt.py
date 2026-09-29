@@ -16,7 +16,8 @@ def test_number_prompt_shape():
     assert len(NUMBER_PROMPT.split(", ")) == 30
 
 
-def test_local_backend_passes_initial_prompt(monkeypatch):
+@pytest.mark.parametrize("prompt", [NUMBER_PROMPT, None], ids=["prompt", "no-prompt"])
+def test_local_backend_passes_initial_prompt(monkeypatch, prompt):
     faster_whisper = pytest.importorskip("faster_whisper")
     calls = {}
 
@@ -29,15 +30,16 @@ def test_local_backend_passes_initial_prompt(monkeypatch):
             return [], SimpleNamespace(language="en", duration=0)
 
     monkeypatch.setattr(faster_whisper, "WhisperModel", FakeModel)
-    audio_extractor.transcribe_with_local_whisper("unused.wav")
-    assert calls["initial_prompt"] == NUMBER_PROMPT
+    audio_extractor.transcribe_with_local_whisper("unused.wav", prompt=prompt)
+    assert calls["initial_prompt"] == prompt
 
 
+@pytest.mark.parametrize("prompt", [NUMBER_PROMPT, None], ids=["prompt", "no-prompt"])
 @pytest.mark.parametrize("module_name,class_name,func_name", [
     ("groq", "Groq", "transcribe_with_groq"),
     ("openai", "OpenAI", "transcribe_with_openai"),
 ])
-def test_api_backends_pass_prompt(monkeypatch, tmp_path, module_name, class_name, func_name):
+def test_api_backends_pass_prompt(monkeypatch, tmp_path, module_name, class_name, func_name, prompt):
     module = pytest.importorskip(module_name)
     calls = {}
 
@@ -51,22 +53,94 @@ def test_api_backends_pass_prompt(monkeypatch, tmp_path, module_name, class_name
     monkeypatch.setattr(module, class_name, FakeClient)
     audio_path = tmp_path / "a.wav"
     audio_path.write_bytes(b"x")
-    getattr(audio_extractor, func_name)(str(audio_path), api_key="k")
-    assert calls["prompt"] == NUMBER_PROMPT
+    getattr(audio_extractor, func_name)(str(audio_path), api_key="k", prompt=prompt)
+    if prompt is None:
+        assert "prompt" not in calls
+    else:
+        assert calls["prompt"] == prompt
+
+
+def w(raw, start):
+    return {"start": start, "end": start + 0.5, "raw": raw, "norm": audio_extractor.norm_token(raw)}
+
+
+def words_from(text):
+    return [w(t, float(i)) for i, t in enumerate(text.split())]
+
+
+def run_extract(monkeypatch, tmp_path, *transcripts):
+    """Run extract_audio_clips with the local transcriber returning each
+    transcript in turn; returns (count, debug_info, prompts seen, files)."""
+    prompts = []
+    remaining = list(transcripts)
+
+    def fake_transcribe(*args, prompt=None, **kwargs):
+        prompts.append(prompt)
+        words = remaining.pop(0)
+        return words, " ".join(x["raw"] for x in words), {"language": "en", "duration": 0}
+
+    monkeypatch.setattr(audio_extractor, "transcribe_with_local_whisper", fake_transcribe)
+    wav = tmp_path / "in.wav"
+    AudioSegment.silent(20000).export(str(wav), format="wav")
+    out_dir = tmp_path / "out"
+    count, debug_info = audio_extractor.extract_audio_clips(str(wav), str(out_dir), debug=True)
+    return count, debug_info, prompts, sorted(os.listdir(out_dir))
 
 
 def test_clip_count_after_sequence_reset(monkeypatch, tmp_path):
-    def w(raw, start):
-        return {"start": start, "end": start + 0.5, "raw": raw, "norm": audio_extractor.norm_token(raw)}
-
-    words = [w("2025", 1), w("one", 2), w("apple", 3), w("two", 4), w("pear", 5)]
-    monkeypatch.setattr(audio_extractor, "transcribe_with_local_whisper",
-                        lambda *a, **k: (words, "", {}))
-    wav = tmp_path / "in.wav"
-    AudioSegment.silent(7000).export(str(wav), format="wav")
-    out_dir = tmp_path / "out"
-
-    count = audio_extractor.extract_audio_clips(str(wav), str(out_dir))
-
+    count, _, _, files = run_extract(monkeypatch, tmp_path, words_from("2025 x one apple two pear"))
     assert count == 2
-    assert sorted(os.listdir(out_dir)) == ["1.mp3", "2.mp3"]
+    assert files == ["1.mp3", "2.mp3"]
+
+
+def test_complete_prompted_pass_is_used_alone(monkeypatch, tmp_path):
+    count, debug_info, prompts, files = run_extract(
+        monkeypatch, tmp_path, words_from("one a two b three c"))
+    assert prompts == [NUMBER_PROMPT]
+    assert count == 3
+    assert files == ["1.mp3", "2.mp3", "3.mp3"]
+    assert debug_info["whisper_info"]["pass"] == "number prompt"
+    assert [d["number"] for d in debug_info["detected_numbers"]] == ["1", "2", "3"]
+
+
+def test_falls_back_when_unprompted_pass_is_better(monkeypatch, tmp_path):
+    count, debug_info, prompts, files = run_extract(
+        monkeypatch, tmp_path,
+        words_from("one a three b"),
+        words_from("one a two b three c four d"))
+    assert prompts == [NUMBER_PROMPT, None]
+    assert count == 4
+    assert files == ["1.mp3", "2.mp3", "3.mp3", "4.mp3"]
+    assert debug_info["whisper_info"]["pass"] == "no prompt (fallback)"
+    assert debug_info["total_words"] == 8
+    assert debug_info["transcription"] == "one a two b three c four d"
+
+
+def test_keeps_prompted_pass_when_fallback_not_better(monkeypatch, tmp_path):
+    count, debug_info, prompts, files = run_extract(
+        monkeypatch, tmp_path,
+        words_from("one a three b"),
+        words_from("one a two b"))
+    assert prompts == [NUMBER_PROMPT, None]
+    assert count == 2
+    assert files == ["1.mp3", "3.mp3"]
+    assert debug_info["whisper_info"]["pass"] == "number prompt"
+
+
+def test_falls_back_when_prompted_pass_fails(monkeypatch, tmp_path):
+    prompts = []
+
+    def fake_transcribe(*args, prompt=None, **kwargs):
+        prompts.append(prompt)
+        if prompt is not None:
+            raise RuntimeError("boom")
+        return words_from("one a two b"), "one a two b", {}
+
+    monkeypatch.setattr(audio_extractor, "transcribe_with_local_whisper", fake_transcribe)
+    wav = tmp_path / "in.wav"
+    AudioSegment.silent(10000).export(str(wav), format="wav")
+    count, debug_info = audio_extractor.extract_audio_clips(str(wav), str(tmp_path / "out"), debug=True)
+    assert prompts == [NUMBER_PROMPT, None]
+    assert count == 2
+    assert any("boom" in e for e in debug_info["errors"])
+    assert debug_info["whisper_info"]["pass"] == "no prompt (fallback)"

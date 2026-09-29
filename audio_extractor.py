@@ -147,7 +147,103 @@ def detect_number_at(words, i, last_accepted_number=0):
     return None, 0, None, None
 
 
-def transcribe_with_local_whisper(audio_path, model_size="small", use_vad=False):
+MIN_GOOD_CLIP_MS = 300
+
+
+def _is_acceptable(words, j, skip, candidate, last):
+    """
+    Whether a candidate number detected at words[j] (consuming skip tokens)
+    may follow last in the sequence: "1" always may (a reset); otherwise it
+    must be greater than last. A jump past last + 1 is rejected when
+    last + 1 is still detected later, before any number greater than the
+    candidate (e.g. a vocab word heard as "nine" right before "six").
+    """
+    if candidate == 1:
+        return True
+    if candidate <= last:
+        return False
+    if candidate == last + 1:
+        return True
+
+    k = j + skip
+    while k < len(words):
+        num, num_skip, _, _ = detect_number_at(words, k, last)
+        if num:
+            if int(num) == last + 1:
+                return False
+            if int(num) > candidate:
+                return True
+        k += max(num_skip, 1)
+    return True
+
+
+def plan_clip_spans(words, audio_len_ms, clip_duration_ms):
+    """
+    Decide which detected numbers become clips and where each clip starts/ends.
+
+    Numbers must increase from 1; a "1" restarts the sequence and discards
+    earlier spans. A clip runs from the end of its number word to the start
+    of the next acceptable number, or clip_duration_ms past the number word
+    if there is none, clamped to the audio.
+
+    Returns a list of dicts with keys number, start_ms, end_ms, position,
+    word, match_type, score.
+    """
+    spans = []
+    last = 0
+    i = 0
+
+    while i < len(words):
+        num, skip, match_type, score = detect_number_at(words, i, last)
+        if not num or not _is_acceptable(words, i, skip, int(num), last):
+            i += max(skip, 1)
+            continue
+
+        n = int(num)
+        if n == 1:
+            spans = []
+
+        start_ms = words[i + skip - 1]['end'] * 1000
+
+        # Find the next number that could follow this one
+        j = i + skip
+        while j < len(words):
+            nxt, nxt_skip, _, _ = detect_number_at(words, j, n)
+            if nxt and _is_acceptable(words, j, nxt_skip, int(nxt), n):
+                break
+            j += max(nxt_skip, 1)
+
+        end_ms = words[j]['start'] * 1000 if j < len(words) else start_ms + clip_duration_ms
+
+        spans.append({
+            'number': num,
+            'start_ms': min(max(0, start_ms), audio_len_ms),
+            'end_ms': min(max(0, end_ms), audio_len_ms),
+            'position': i,
+            'word': words[i]['raw'],
+            'match_type': match_type,
+            'score': score
+        })
+        last = n
+        i = j
+
+    return spans
+
+
+def score_spans(spans):
+    """
+    Returns (complete, good): good is the number of spans at least
+    MIN_GOOD_CLIP_MS long; complete means the spans are exactly 1..N in
+    order and all of them are good.
+    """
+    good = sum(1 for s in spans if s['end_ms'] - s['start_ms'] >= MIN_GOOD_CLIP_MS)
+    complete = (bool(spans)
+                and [int(s['number']) for s in spans] == list(range(1, len(spans) + 1))
+                and good == len(spans))
+    return complete, good
+
+
+def transcribe_with_local_whisper(audio_path, model_size="small", use_vad=False, prompt=None):
     """Transcribe using local faster-whisper model"""
     from faster_whisper import WhisperModel
 
@@ -157,7 +253,7 @@ def transcribe_with_local_whisper(audio_path, model_size="small", use_vad=False)
         word_timestamps=True,
         vad_filter=use_vad,
         language="en",
-        initial_prompt=NUMBER_PROMPT
+        initial_prompt=prompt
     )
 
     # Convert to list and extract words
@@ -185,7 +281,7 @@ def transcribe_with_local_whisper(audio_path, model_size="small", use_vad=False)
     }
 
 
-def transcribe_with_groq(audio_path, api_key=None):
+def transcribe_with_groq(audio_path, api_key=None, prompt=None):
     """Transcribe using Groq Whisper API"""
     from groq import Groq
 
@@ -196,13 +292,15 @@ def transcribe_with_groq(audio_path, api_key=None):
 
     client = Groq(api_key=api_key)
 
+    # Omit the kwarg without a prompt (the SDK would otherwise send an explicit null)
+    prompt_kwargs = {"prompt": prompt} if prompt is not None else {}
     with open(audio_path, "rb") as audio_file:
         transcription = client.audio.transcriptions.create(
             model="whisper-large-v3",
             file=audio_file,
             response_format="verbose_json",
             timestamp_granularities=["word"],
-            prompt=NUMBER_PROMPT
+            **prompt_kwargs
         )
 
     # Extract words with timestamps
@@ -223,7 +321,7 @@ def transcribe_with_groq(audio_path, api_key=None):
     }
 
 
-def transcribe_with_openai(audio_path, api_key=None):
+def transcribe_with_openai(audio_path, api_key=None, prompt=None):
     """Transcribe using OpenAI Whisper API"""
     from openai import OpenAI
 
@@ -234,13 +332,15 @@ def transcribe_with_openai(audio_path, api_key=None):
 
     client = OpenAI(api_key=api_key)
 
+    # Omit the kwarg without a prompt (the SDK would otherwise send an explicit null)
+    prompt_kwargs = {"prompt": prompt} if prompt is not None else {}
     with open(audio_path, "rb") as audio_file:
         transcription = client.audio.transcriptions.create(
             model="whisper-1",
             file=audio_file,
             response_format="verbose_json",
             timestamp_granularities=["word"],
-            prompt=NUMBER_PROMPT
+            **prompt_kwargs
         )
 
     # Extract words with timestamps
@@ -298,9 +398,6 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
     temp_wav.close()
     audio.export(temp_wav_path, format='wav')
 
-    if progress_callback:
-        progress_callback(30, f"Transcribing audio with {api_type.upper()} Whisper...")
-
     # Detailed debug info
     debug_info = {
         'total_words': 0,
@@ -313,138 +410,81 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
         'api_type': api_type
     }
 
-    try:
-        # Transcribe based on API type
+    def transcribe(prompt):
         if api_type == "local":
-            words, transcription, info = transcribe_with_local_whisper(
+            return transcribe_with_local_whisper(
                 temp_wav_path,
                 model_size=model_size,
-                use_vad=use_vad
+                use_vad=use_vad,
+                prompt=prompt
             )
         elif api_type == "groq":
-            words, transcription, info = transcribe_with_groq(temp_wav_path, api_key=api_key)
+            return transcribe_with_groq(temp_wav_path, api_key=api_key, prompt=prompt)
         elif api_type == "openai":
-            words, transcription, info = transcribe_with_openai(temp_wav_path, api_key=api_key)
-        else:
-            raise ValueError(f"Invalid api_type: {api_type}. Must be 'local', 'groq', or 'openai'")
+            return transcribe_with_openai(temp_wav_path, api_key=api_key, prompt=prompt)
+        raise ValueError(f"Invalid api_type: {api_type}. Must be 'local', 'groq', or 'openai'")
 
-        debug_info['whisper_info'] = info
-        debug_info['total_words'] = len(words)
-        debug_info['transcription'] = transcription
-        debug_info['first_20_words'] = [f"{w['raw']} (norm: {w['norm']})" for w in words[:20]]
+    # The number prompt helps larger models hear card numbers but can derail
+    # small ones, so retry without it unless the prompted pass found a
+    # complete sequence, and keep whichever pass yields more usable clips.
+    best = None
+    for pass_name, prompt in (("number prompt", NUMBER_PROMPT), ("no prompt (fallback)", None)):
+        if progress_callback:
+            progress_callback(30, f"Transcribing audio with {api_type.upper()} Whisper ({pass_name})...")
+
+        try:
+            words, transcription, info = transcribe(prompt)
+        except Exception as e:
+            debug_info['errors'].append(f"Transcription error ({pass_name}): {str(e)}")
+            import traceback
+            debug_info['errors'].append(traceback.format_exc())
+            continue
 
         if progress_callback:
             progress_callback(40, f"Found {len(words)} words...")
 
-    except Exception as e:
-        debug_info['errors'].append(f"Transcription error: {str(e)}")
-        import traceback
-        debug_info['errors'].append(traceback.format_exc())
-        words = []
-
-    if not words:
-        # Clean up temporary WAV file
-        try:
-            os.unlink(temp_wav_path)
-        except:
-            pass
-        return (0, debug_info) if debug else 0
-
-    if progress_callback:
-        progress_callback(50, "Extracting audio clips...")
-
-    # Extract audio clips for each detected number (in increasing order starting at 1)
-    last_accepted_number = 0  # Track last accepted number (start at 0 so 1 is accepted first)
-    created_files = []  # Track files created in current sequence
-    i = 0
-    saved = 0
-
-    while i < len(words):
-        num, skip, match_type, score = detect_number_at(words, i, last_accepted_number)
-        if not num:
-            i += 1
-            continue
-
-        # Convert num to integer for comparison
-        try:
-            num_int = int(num)
-        except ValueError:
-            i += skip
-            continue
-
-        # Accept "1" at any point (resets counter), otherwise numbers must be increasing
-        if num_int == 1:
-            # If this is a reset (not the first "one"), delete all previous clips
-            if created_files:
-                for file_path in created_files:
-                    try:
-                        os.remove(file_path)
-                    except:
-                        pass
-                saved -= len(created_files)
-                created_files = []
-            # Reset counter when we encounter "1" (allows multiple takes)
-            last_accepted_number = 0
-        elif num_int <= last_accepted_number:
-            i += skip  # Skip numbers that are not increasing
-            continue
-
-        debug_info['detected_numbers'].append({
-            'number': num,
-            'position': i,
-            'word': words[i]['raw'],
-            'match_type': match_type,
-            'score': score
-        })
-
-        # Get the timestamp where this number ends
-        number_end_time = words[i + skip - 1]['end'] * 1000
-
-        # Find the start time of the next number (if any)
-        j = i + skip
-        next_number_start_time = None
-        while j < len(words):
-            nxt_num, nxt_skip, _, _ = detect_number_at(words, j, num_int)
-            if nxt_num:
-                next_number_start_time = words[j]['start'] * 1000
-                break
-            j += 1
-
-        # Extract audio from end of current number to start of next number
-        start_time = number_end_time
-
-        if next_number_start_time is not None:
-            # Extract up to the next number
-            end_time = next_number_start_time
-        else:
-            # No next number - extract fixed duration after the number word ends
-            end_time = number_end_time + clip_duration_ms
-
-        start_time = max(0, start_time)
-        end_time = min(len(audio), end_time)
-
-        clip = audio[start_time:end_time]
-
-        out_name = f"{num}.mp3"
-        out_path = os.path.join(output_dir, out_name)
-        clip.export(out_path, format="mp3")
-        created_files.append(out_path)  # Track created file
-        saved += 1
-        last_accepted_number = num_int  # Update last accepted number
-
-        if progress_callback:
-            progress_callback(50 + int(40 * saved / len(words)), f"Extracted clip {saved}...")
-
-        i = j if j < len(words) else len(words)
-
-    if progress_callback:
-        progress_callback(100, f"Extracted {saved} clips!")
+        spans = plan_clip_spans(words, len(audio), clip_duration_ms)
+        complete, good = score_spans(spans)
+        if best is None or good > best['good']:
+            best = {'pass': pass_name, 'words': words, 'transcription': transcription,
+                    'info': info, 'spans': spans, 'good': good}
+        if complete:
+            break
 
     # Clean up temporary WAV file
     try:
         os.unlink(temp_wav_path)
     except:
         pass
+
+    if best is None:
+        return (0, debug_info) if debug else 0
+
+    words = best['words']
+    debug_info['whisper_info'] = {**best['info'], 'pass': best['pass']}
+    debug_info['total_words'] = len(words)
+    debug_info['transcription'] = best['transcription']
+    debug_info['first_20_words'] = [f"{w['raw']} (norm: {w['norm']})" for w in words[:20]]
+
+    if progress_callback:
+        progress_callback(50, "Extracting audio clips...")
+
+    spans = best['spans']
+    saved = 0
+    for span in spans:
+        debug_info['detected_numbers'].append({
+            key: span[key] for key in ('number', 'position', 'word', 'match_type', 'score')
+        })
+
+        clip = audio[span['start_ms']:span['end_ms']]
+        clip.export(os.path.join(output_dir, f"{span['number']}.mp3"), format="mp3")
+        saved += 1
+
+        if progress_callback:
+            progress_callback(50 + int(40 * saved / len(spans)), f"Extracted clip {saved}...")
+
+    if progress_callback:
+        progress_callback(100, f"Extracted {saved} clips!")
 
     return (saved, debug_info) if debug else saved
 
