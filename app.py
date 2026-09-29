@@ -821,37 +821,6 @@ with tab4:
 
 # Sidebar with documentation and utilities
 with st.sidebar:
-    with st.expander("🐞 Report an issue", expanded=False):
-        st.caption(
-            "Downloads a zip with your uploaded files (documents, recordings, photos), "
-            "the app's outputs and debug logs. Send it to the maintainer. "
-            "Prepare again after trying more steps."
-        )
-        report_note = st.text_area("What went wrong?", key="report_note")
-        if st.button("Prepare report", key="prepare_report_btn"):
-            try:
-                st.session_state.issue_report_zip = issue_report.build_report_zip(
-                    st.session_state.issue_report,
-                    report_note,
-                    {
-                        "images": st.session_state.temp_images,
-                        "audio": st.session_state.temp_audio,
-                        "final": st.session_state.temp_final,
-                    },
-                    {"version": issue_report.app_version()},
-                )
-                st.session_state.issue_report_name = datetime.now().strftime("anki-report-%Y-%m-%d-%H%M.zip")
-            except Exception as e:
-                st.error(f"Couldn't prepare the report: {e}")
-        if st.session_state.get("issue_report_zip"):
-            st.download_button(
-                "Download report (.zip)",
-                data=st.session_state.issue_report_zip,
-                file_name=st.session_state.issue_report_name,
-                mime="application/zip",
-                key="download_report_btn",
-            )
-
     st.header("📖 How to Use")
 
     with st.expander("🎯 Quick Start Guide", expanded=False):
@@ -981,6 +950,39 @@ with st.sidebar:
 
 # Footer
 st.markdown("---")
+_, report_col, _ = st.columns([1, 2, 1])
+with report_col:
+    with st.expander("🐞 Report an issue", expanded=False):
+        st.caption(
+            "Downloads a zip with your uploaded files (documents, recordings, photos), "
+            "the app's outputs and debug logs. Send it to the email below. "
+            "Prepare again after trying more steps."
+        )
+        report_note = st.text_area("What went wrong?", key="report_note")
+        if st.button("Prepare report", key="prepare_report_btn"):
+            try:
+                st.session_state.issue_report_zip = issue_report.build_report_zip(
+                    st.session_state.issue_report,
+                    report_note,
+                    {
+                        "images": st.session_state.temp_images,
+                        "audio": st.session_state.temp_audio,
+                        "final": st.session_state.temp_final,
+                    },
+                    {"version": issue_report.app_version()},
+                )
+                st.session_state.issue_report_name = datetime.now().strftime("anki-report-%Y-%m-%d-%H%M.zip")
+            except Exception as e:
+                st.error(f"Couldn't prepare the report: {e}")
+        if st.session_state.get("issue_report_zip"):
+            st.download_button(
+                "Download report (.zip)",
+                data=st.session_state.issue_report_zip,
+                file_name=st.session_state.issue_report_name,
+                mime="application/zip",
+                key="download_report_btn",
+            )
+
 st.markdown(
     """
     <div style='text-align: center; color: #555; padding: 20px 0;'>
