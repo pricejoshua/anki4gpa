@@ -68,7 +68,7 @@ def words_from(text):
     return [w(t, float(i)) for i, t in enumerate(text.split())]
 
 
-def run_extract(monkeypatch, tmp_path, *transcripts):
+def run_extract(monkeypatch, tmp_path, *transcripts, **kwargs):
     """Run extract_audio_clips with the local transcriber returning each
     transcript in turn; returns (count, debug_info, prompts seen, files)."""
     prompts = []
@@ -83,7 +83,7 @@ def run_extract(monkeypatch, tmp_path, *transcripts):
     wav = tmp_path / "in.wav"
     AudioSegment.silent(20000).export(str(wav), format="wav")
     out_dir = tmp_path / "out"
-    count, debug_info = audio_extractor.extract_audio_clips(str(wav), str(out_dir), debug=True)
+    count, debug_info = audio_extractor.extract_audio_clips(str(wav), str(out_dir), debug=True, **kwargs)
     return count, debug_info, prompts, sorted(os.listdir(out_dir))
 
 
@@ -153,3 +153,28 @@ def test_invalid_api_type_reported_once(tmp_path):
         str(wav), str(tmp_path / "out"), api_type="bogus", debug=True)
     assert count == 0
     assert len([e for e in debug_info["errors"] if "Invalid api_type" in e]) == 1
+
+
+@pytest.mark.parametrize("size", ["tiny", "base"])
+def test_tiny_and_base_skip_prompt_and_fallback(monkeypatch, tmp_path, size):
+    count, debug_info, prompts, _ = run_extract(
+        monkeypatch, tmp_path, words_from("one a three b"), model_size=size)
+    assert prompts == [None]
+    assert count == 2
+    assert debug_info["whisper_info"]["pass"] == "no prompt (model too small for prompt)"
+
+
+def test_small_still_prompts_first(monkeypatch, tmp_path):
+    _, _, prompts, _ = run_extract(
+        monkeypatch, tmp_path, words_from("one a two b"), model_size="small")
+    assert prompts == [NUMBER_PROMPT]
+
+
+def test_short_clip_in_prompted_pass_triggers_fallback(monkeypatch, tmp_path):
+    def at(raw, start, end):
+        return {"start": start, "end": end, "raw": raw, "norm": audio_extractor.norm_token(raw)}
+    # 1..3 in order, but clip 2 (2.0 s -> 2.4 s) is only 400 ms long
+    prompted = [at("one", 0.0, 0.5), at("a", 1.0, 1.5), at("two", 1.5, 2.0),
+                at("three", 2.4, 2.9), at("c", 4.0, 4.5)]
+    _, _, prompts, _ = run_extract(monkeypatch, tmp_path, prompted, words_from("one a two b three c"))
+    assert prompts == [NUMBER_PROMPT, None]

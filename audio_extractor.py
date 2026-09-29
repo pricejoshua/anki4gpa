@@ -39,6 +39,8 @@ def word_forms_for(number):
 
 # Spoken forms of 1..30, used to bias Whisper toward transcribing card numbers
 # (otherwise e.g. "nine" in mixed English/Farsi audio is often misheard).
+# Local models too small to benefit from the number prompt (it derails them)
+UNPROMPTED_MODEL_SIZES = ("tiny", "base")
 NUMBER_PROMPT = ", ".join(word_forms_for(n)[-1] for n in range(1, 31)).capitalize() + "."
 
 
@@ -147,7 +149,7 @@ def detect_number_at(words, i, last_accepted_number=0):
     return None, 0, None, None
 
 
-MIN_GOOD_CLIP_MS = 300
+MIN_GOOD_CLIP_MS = 1000
 LAST_CLIP_PAUSE_MS = 1000
 LAST_CLIP_TAIL_MS = 300
 LAST_CLIP_MAX_LEAD_MS = 5000
@@ -459,7 +461,11 @@ def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=40
         # The number prompt helps larger models hear card numbers but can derail
         # small ones, so retry without it unless the prompted pass found a
         # complete sequence, and keep whichever pass yields more usable clips.
-        for pass_name, prompt in (("number prompt", NUMBER_PROMPT), ("no prompt (fallback)", None)):
+        if api_type == "local" and model_size in UNPROMPTED_MODEL_SIZES:
+            passes = (("no prompt (model too small for prompt)", None),)
+        else:
+            passes = (("number prompt", NUMBER_PROMPT), ("no prompt (fallback)", None))
+        for pass_name, prompt in passes:
             if progress_callback:
                 progress_callback(30, f"Transcribing audio with {api_type.upper()} Whisper ({pass_name})...")
 

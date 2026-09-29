@@ -65,7 +65,8 @@ def span(n, start, end):
 
 
 def test_score_spans():
-    assert score_spans([span(1, 0, 1000), span(2, 1000, 1300)]) == (True, 2)
+    assert score_spans([span(1, 0, 1000), span(2, 1000, 2000)]) == (True, 2)
+    assert score_spans([span(1, 0, 1000), span(2, 1000, 1400)]) == (False, 1)
     assert score_spans([span(1, 0, 1000), span(3, 1000, 2000)]) == (False, 2)
     assert score_spans([span(1, 0, 1000), span(2, 1000, 1000)]) == (False, 1)
     assert score_spans([span(2, 0, 1000)]) == (False, 1)
@@ -126,3 +127,8 @@ def test_last_clip_lead_too_long_uses_clip_duration():
 def test_last_clip_lead_under_cap_still_walks():
     spans = plan_clip_spans(words_timed("two@2-2.5 just@7.4-7.9 added@7.9-8.5"), 60000, 3000)
     assert spans[-1]["end_ms"] == 8800
+
+
+def test_score_spans_min_clip_is_one_second():
+    assert score_spans([span(1, 0, 999)]) == (False, 0)
+    assert score_spans([span(1, 0, 1000)]) == (True, 1)
