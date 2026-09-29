@@ -93,3 +93,33 @@ A prototype of the rules below produced a complete 1–12 with no empty clips on
 - [ ] **Step 3:** Implement per Revised Global Constraints. Keep `detect_number_at` unchanged.
 - [ ] **Step 4:** Full suite green.
 - [ ] **Step 5:** Commit `"Fall back to unprompted Whisper when needed; skip false jumps and empty clips"`.
+
+---
+
+## Revision 2: last clip end (user decision, option B)
+
+The final span has no following number, so today it ends at `number_end + clip_duration_ms` (3 s), which truncates longer phrases (real recording: card 12's phrase runs ~80–84 s, clip stops at ~80.9 s). The user chose: end the last clip at the end of the last word before a pause, so trailing chatter after a pause is dropped.
+
+Measured on the real recording's transcripts: the gap from the number to the first following word is ~2 s (so the pause check must start *after* that first word); within the phrase Whisper's word timestamps are contiguous (gap 0.00); the gap before trailing chatter ("Just added something") is 1.12–1.53 s on small/medium; on tiny the gap between two repeats of the phrase is exactly 1.00 s.
+
+## Revision 2 Global Constraints
+
+- Constants: `LAST_CLIP_PAUSE_MS = 1000`, `LAST_CLIP_TAIL_MS = 300`.
+- Applies only to a span with no following acceptable number (in practice the last span of the final sequence). All other span ends are unchanged.
+- Let `following` = the words after the number's last token (`words[i + skip:]`). If empty → keep today's `number_end + clip_duration_ms`.
+- Otherwise walk `following` from its first word: keep extending while the gap between the previous kept word's `end` and the next word's `start` is **≤ LAST_CLIP_PAUSE_MS** (strictly greater than 1000 ms stops). Clip end = last kept word's `end` + `LAST_CLIP_TAIL_MS`, clamped to `audio_len_ms` (and the existing `[0, audio_len_ms]` clamp).
+- Numbers inside `following` can't exist for this span by definition except unacceptable ones (≤ current, or false jumps); they are treated as ordinary words (they don't stop the walk).
+- `clip_duration_ms` parameter stays (used for the empty-`following` case); update its docstring accordingly.
+
+### Task 3: End the last clip at the last word before a pause
+
+**Files:** Modify `audio_extractor.py` (`plan_clip_spans` and docstring); extend `tests/test_plan_clip_spans.py`.
+
+- [ ] **Step 1: Failing tests** (synthetic words with explicit start/end; build a helper that accepts `(text, start_s, end_s)`):
+  1. Last phrase contiguous then pause >1 s then chatter: `… twelve@(10.0,10.5) inas@(12.5,13.0) goje@(13.0,13.6) shude@(13.6,14.2) just@(15.4,15.8) added@(15.8,16.2)` → span 12 ends at 14.2 s + 0.3 s = 14500 ms.
+  2. Pause of exactly 1.0 s continues: `twelve@(10,10.5) a@(12,12.5) b@(13.5,14)` → ends at 14300 ms.
+  3. No words after the last number → `number_end + clip_duration_ms` (existing behaviour).
+  4. Clamp: last kept word ends near the audio end → end == `audio_len_ms`.
+  5. The ~2 s gap between the number and the first following word does not stop the walk (covered by test 1; assert the span isn't cut before `inas`).
+  6. Non-last spans unchanged (e.g. span 11 still ends at `twelve`'s start in test 1's list).
+- [ ] **Step 2:** Run, confirm failures. **Step 3:** Implement. **Step 4:** Full suite green. **Step 5:** Commit `"End the last clip at the last word before a pause"`.
