@@ -9,6 +9,7 @@ import re
 import shutil
 import tempfile
 import zipfile
+from datetime import datetime
 from io import BytesIO
 
 # Import our custom modules
@@ -16,6 +17,7 @@ from image_extractor import extract_numbered_images, save_numbered_photos
 from audio_extractor import extract_audio_clips, save_numbered_audio
 from file_pairer import pair_files
 from deck_creator import create_anki_deck
+import issue_report
 
 
 # ============================================================================
@@ -59,6 +61,8 @@ if 'audio_files' not in st.session_state:
     st.session_state.audio_files = []
 if 'paired_files' not in st.session_state:
     st.session_state.paired_files = []
+if 'issue_report' not in st.session_state:
+    st.session_state.issue_report = issue_report.new_report_state()
 
 # Header
 st.title("📚 Anki Deck Creator")
@@ -187,6 +191,8 @@ with tab1:
                 st.error("Please upload a Word document first")
             else:
                 try:
+                    rep = st.session_state.issue_report
+                    issue_report.record_upload(rep, docx_file.name, docx_file.getvalue())
                     with st.spinner("Extracting images..."):
                         # Create temp directory for images
                         if st.session_state.temp_images:
@@ -210,6 +216,13 @@ with tab1:
                             key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
                         )
 
+                        issue_report.record_event(
+                            rep, "extract_images", {"file": docx_file.name},
+                            {"count": result["count"],
+                             "skipped_unconvertible": result["skipped_unconvertible"],
+                             "files": st.session_state.image_files},
+                        )
+
                         st.success(f"Extracted {len(st.session_state.image_files)} images!")
                         if result['skipped_unconvertible']:
                             st.warning(
@@ -217,6 +230,7 @@ with tab1:
                                 + ", ".join(result['skipped_unconvertible'])
                             )
                 except Exception as e:
+                    issue_report.record_error(st.session_state.issue_report, "extract_images", e)
                     st.error(f"Error extracting images: {str(e)}")
     else:
         st.markdown(
@@ -238,13 +252,17 @@ with tab1:
                 st.error("Please upload photo files first")
             else:
                 try:
+                    rep = st.session_state.issue_report
                     with st.spinner("Processing photos..."):
                         if st.session_state.temp_images:
                             shutil.rmtree(st.session_state.temp_images, ignore_errors=True)
                         st.session_state.temp_images = tempfile.mkdtemp(prefix="anki_images_")
 
                         uploads = [(f.name, f.getvalue()) for f in photo_files]
+                        for _n, _d in uploads:
+                            issue_report.record_upload(rep, _n, _d)
                         result = save_numbered_photos(uploads, st.session_state.temp_images)
+                        issue_report.record_event(rep, "use_photos", {"files": [n for n, _ in uploads]}, result)
 
                         st.session_state.image_files = sorted(
                             [f for f in os.listdir(st.session_state.temp_images) if f.endswith('.png')],
@@ -268,6 +286,7 @@ with tab1:
                                 + ", ".join(result['skipped_unreadable'])
                             )
                 except Exception as e:
+                    issue_report.record_error(st.session_state.issue_report, "use_photos", e)
                     st.error(f"Error processing photos: {str(e)}")
 
     # Display extracted images (shared by both image sources above)
@@ -339,6 +358,8 @@ with tab2:
                 st.error("Please upload an audio file first")
             else:
                 try:
+                    rep = st.session_state.issue_report
+                    issue_report.record_upload(rep, audio_file.name, audio_file.getvalue())
                     api_label = {"local": f"Local Whisper ({model_size})", "groq": "Groq API", "openai": "OpenAI API"}[api_type]
                     with st.spinner(f"Processing audio with {api_label}... This may take a few minutes."):
                         # Create temp directory for audio
@@ -375,6 +396,13 @@ with tab2:
                         else:
                             clip_count = result if isinstance(result, int) else result[0]
                             debug_info = None
+
+                        issue_report.record_event(
+                            rep, "extract_audio",
+                            {"file": audio_file.name, "api_type": api_type, "model_size": model_size,
+                             "use_vad": use_vad, "buffer_ms": buffer_ms, "api_key": current_api_key},
+                            debug_info,
+                        )
 
                         # Clean up temp audio file
                         os.unlink(temp_audio.name)
@@ -430,6 +458,7 @@ with tab2:
                                     st.error("No numbers detected! Check if the audio contains spoken numbers like 'one', 'two', 'number one', etc.")
 
                 except Exception as e:
+                    issue_report.record_error(st.session_state.issue_report, "extract_audio", e)
                     st.error(f"Error extracting audio: {str(e)}")
                     import traceback
                     st.code(traceback.format_exc())
@@ -453,13 +482,17 @@ with tab2:
                 st.error("Please upload audio files first")
             else:
                 try:
+                    rep = st.session_state.issue_report
                     with st.spinner("Processing audio files..."):
                         if st.session_state.temp_audio:
                             shutil.rmtree(st.session_state.temp_audio, ignore_errors=True)
                         st.session_state.temp_audio = tempfile.mkdtemp(prefix="anki_audio_")
 
                         uploads = [(f.name, f.getvalue()) for f in audio_clip_files]
+                        for _n, _d in uploads:
+                            issue_report.record_upload(rep, _n, _d)
                         result = save_numbered_audio(uploads, st.session_state.temp_audio)
+                        issue_report.record_event(rep, "use_audio_clips", {"files": [n for n, _ in uploads]}, result)
 
                         st.session_state.audio_files = sorted(
                             [f for f in os.listdir(st.session_state.temp_audio) if f.endswith('.mp3')],
@@ -483,6 +516,7 @@ with tab2:
                                 + ", ".join(result['skipped_unreadable'])
                             )
                 except Exception as e:
+                    issue_report.record_error(st.session_state.issue_report, "use_audio_clips", e)
                     st.error(f"Error processing audio files: {str(e)}")
 
     # Display extracted audio clips
@@ -546,8 +580,14 @@ with tab3:
                     )
 
                     st.session_state.paired_files = paired
+                    issue_report.record_event(
+                        st.session_state.issue_report, "pair_files", {},
+                        {"pairs": [(n, os.path.basename(a), os.path.basename(i))
+                                   for n, a, i in st.session_state.paired_files]},
+                    )
                     st.success(f"Paired {len(paired)} files!")
             except Exception as e:
+                issue_report.record_error(st.session_state.issue_report, "pair_files", e)
                 st.error(f"Error pairing files: {str(e)}")
 
     # Display paired files
@@ -594,6 +634,8 @@ with tab3:
                                 os.remove(image_path)
                         except Exception as e:
                             st.error(f"Error removing files: {str(e)}")
+                        issue_report.record_event(
+                            st.session_state.issue_report, "remove_pair", {"number": num, "target": None})
                         st.rerun()
 
                 with mgmt_col2:
@@ -615,6 +657,9 @@ with tab3:
                                 pairs[idx] = (pairs[idx][0], pairs[target_idx][1], pairs[idx][2])
                                 pairs[target_idx] = (pairs[target_idx][0], audio_path, pairs[target_idx][2])
                                 st.session_state.paired_files = pairs
+                                issue_report.record_event(
+                                    st.session_state.issue_report, "swap_audio",
+                                    {"number": num, "target": swap_audio_target})
                                 st.success(f"Swapped audio between Card {num} and Card {swap_audio_target}")
                                 st.rerun()
 
@@ -635,6 +680,9 @@ with tab3:
                                 pairs[idx] = (pairs[idx][0], pairs[idx][1], pairs[target_idx][2])
                                 pairs[target_idx] = (pairs[target_idx][0], pairs[target_idx][1], image_path)
                                 st.session_state.paired_files = pairs
+                                issue_report.record_event(
+                                    st.session_state.issue_report, "swap_image",
+                                    {"number": num, "target": swap_image_target})
                                 st.success(f"Swapped image between Card {num} and Card {swap_image_target}")
                                 st.rerun()
 
@@ -737,6 +785,13 @@ with tab4:
                         card_style=card_style
                     )
 
+                    issue_report.record_event(
+                        st.session_state.issue_report, "create_deck",
+                        {"card_style": card_style, "deck_name": deck_name, "tags": tags,
+                         "unit_session": unit_session},
+                        {"pairs": len(st.session_state.paired_files)},
+                    )
+
                     # Read file for download
                     with open(apkg_path, 'rb') as f:
                         apkg_data = f.read()
@@ -756,10 +811,41 @@ with tab4:
                         mime="application/apkg"
                     )
             except Exception as e:
+                issue_report.record_error(st.session_state.issue_report, "create_deck", e)
                 st.error(f"Error creating deck: {str(e)}")
 
 # Sidebar with documentation and utilities
 with st.sidebar:
+    with st.expander("🐞 Report an issue", expanded=False):
+        st.caption(
+            "Downloads a zip with your uploaded files (documents, recordings, photos), "
+            "the app's outputs and debug logs. Send it to the maintainer."
+        )
+        report_note = st.text_area("What went wrong?", key="report_note")
+        if st.button("Prepare report", key="prepare_report_btn"):
+            try:
+                st.session_state.issue_report_zip = issue_report.build_report_zip(
+                    st.session_state.issue_report,
+                    report_note,
+                    {
+                        "images": st.session_state.temp_images,
+                        "audio": st.session_state.temp_audio,
+                        "final": st.session_state.temp_final,
+                    },
+                    {"version": issue_report.app_version()},
+                )
+                st.session_state.issue_report_name = datetime.now().strftime("anki-report-%Y-%m-%d-%H%M.zip")
+            except Exception as e:
+                st.error(f"Couldn't prepare the report: {e}")
+        if st.session_state.get("issue_report_zip"):
+            st.download_button(
+                "Download report (.zip)",
+                data=st.session_state.issue_report_zip,
+                file_name=st.session_state.issue_report_name,
+                mime="application/zip",
+                key="download_report_btn",
+            )
+
     st.header("📖 How to Use")
 
     with st.expander("🎯 Quick Start Guide", expanded=False):
@@ -860,6 +946,8 @@ with st.sidebar:
         st.session_state.image_files = []
         st.session_state.audio_files = []
         st.session_state.paired_files = []
+        st.session_state.issue_report = issue_report.clear_report(st.session_state.issue_report)
+        st.session_state.pop("issue_report_zip", None)
         st.success("All data cleared!")
         st.rerun()
 
