@@ -7,6 +7,7 @@ Deliberately free of Streamlit so it can be unit-tested directly.
 """
 
 import copy
+import hashlib
 import io
 import json
 import os
@@ -52,17 +53,25 @@ def redact(d):
 
 
 def record_upload(state, name, data):
-    """Save a copy of an uploaded file; never overwrites an earlier upload."""
+    """Save a copy of an uploaded file; never overwrites an earlier upload.
+
+    Identical bytes already saved (e.g. a retry) are not written again; the new
+    timeline entry points at the existing file.
+    """
     uploads_dir = os.path.join(state["dir"], "uploads")
     os.makedirs(uploads_dir, exist_ok=True)
-    base = os.path.basename(name) or "upload"
-    saved_as, n = base, 1
-    while os.path.exists(os.path.join(uploads_dir, saved_as)):
-        n += 1
-        saved_as = f"{n}_{base}"
-    with open(os.path.join(uploads_dir, saved_as), "wb") as f:
-        f.write(data)
-    state["uploads"].append({"name": name, "saved_as": saved_as, "size": len(data), "time": _now()})
+    digest = hashlib.sha256(data).hexdigest()
+    saved_as = next((u["saved_as"] for u in state["uploads"] if u.get("sha256") == digest), None)
+    if saved_as is None:
+        base = os.path.basename(name) or "upload"
+        saved_as, n = base, 1
+        while os.path.exists(os.path.join(uploads_dir, saved_as)):
+            n += 1
+            saved_as = f"{n}_{base}"
+        with open(os.path.join(uploads_dir, saved_as), "wb") as f:
+            f.write(data)
+    state["uploads"].append({"name": name, "saved_as": saved_as, "size": len(data),
+                             "sha256": digest, "time": _now()})
 
 
 def record_event(state, step, settings, debug=None):

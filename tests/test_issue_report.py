@@ -174,3 +174,42 @@ def test_record_event_deep_copies_debug_to_prevent_mutation():
         assert "y" not in ev["debug"]
     finally:
         ir.clear_report(state)
+
+
+def _files(state):
+    return sorted(os.listdir(os.path.join(state["dir"], "uploads")))
+
+
+def test_record_upload_same_name_same_bytes_dedupes_content():
+    state = ir.new_report_state()
+    try:
+        ir.record_upload(state, "a.docx", b"same")
+        ir.record_upload(state, "a.docx", b"same")
+        assert _files(state) == ["a.docx"]
+        assert [u["saved_as"] for u in state["uploads"]] == ["a.docx", "a.docx"]
+        assert state["uploads"][0]["sha256"] == state["uploads"][1]["sha256"]
+    finally:
+        ir.clear_report(state)
+
+
+def test_record_upload_same_name_different_bytes_still_numbered():
+    state = ir.new_report_state()
+    try:
+        ir.record_upload(state, "a.docx", b"one")
+        ir.record_upload(state, "a.docx", b"two")
+        assert _files(state) == ["2_a.docx", "a.docx"]
+        assert [u["saved_as"] for u in state["uploads"]] == ["a.docx", "2_a.docx"]
+    finally:
+        ir.clear_report(state)
+
+
+def test_record_upload_different_name_same_bytes_points_to_first():
+    state = ir.new_report_state()
+    try:
+        ir.record_upload(state, "a.docx", b"same")
+        ir.record_upload(state, "b.docx", b"same")
+        assert _files(state) == ["a.docx"]
+        assert state["uploads"][1]["name"] == "b.docx"
+        assert state["uploads"][1]["saved_as"] == "a.docx"
+    finally:
+        ir.clear_report(state)

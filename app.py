@@ -69,6 +69,8 @@ def _report(fn, *args):
     """Call an issue_report recorder; diagnostics must never break the app."""
     try:
         fn(st.session_state.issue_report, *args)
+        # A prepared zip is stale once more steps are recorded.
+        st.session_state.pop("issue_report_zip", None)
     except Exception as e:
         print(f"[issue_report] {fn.__name__} failed: {e}")
 
@@ -201,6 +203,7 @@ with tab1:
             else:
                 try:
                     _report(issue_report.record_upload, docx_file.name, docx_file.getvalue())
+                    _report(issue_report.record_event, "extract_images", {"file": docx_file.name})
                     with st.spinner("Extracting images..."):
                         # Create temp directory for images
                         if st.session_state.temp_images:
@@ -224,7 +227,7 @@ with tab1:
                             key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
                         )
 
-                        _report(issue_report.record_event, "extract_images", {"file": docx_file.name},
+                        _report(issue_report.record_event, "extract_images_result", {},
                             {"count": result["count"],
                              "skipped_unconvertible": result["skipped_unconvertible"],
                              "files": st.session_state.image_files},
@@ -267,8 +270,9 @@ with tab1:
                         uploads = [(f.name, f.getvalue()) for f in photo_files]
                         for _n, _d in uploads:
                             _report(issue_report.record_upload, _n, _d)
+                        _report(issue_report.record_event, "use_photos", {"files": [n for n, _ in uploads]})
                         result = save_numbered_photos(uploads, st.session_state.temp_images)
-                        _report(issue_report.record_event, "use_photos", {"files": [n for n, _ in uploads]}, result)
+                        _report(issue_report.record_event, "use_photos_result", {}, result)
 
                         st.session_state.image_files = sorted(
                             [f for f in os.listdir(st.session_state.temp_images) if f.endswith('.png')],
@@ -365,6 +369,11 @@ with tab2:
             else:
                 try:
                     _report(issue_report.record_upload, audio_file.name, audio_file.getvalue())
+                    _report(issue_report.record_event, "extract_audio",
+                        {"file": audio_file.name, "api_type": api_type, "model_size": model_size,
+                         "use_vad": use_vad, "buffer_ms": buffer_ms,
+                         "api_key": api_key if api_type != "local" else None},
+                    )
                     api_label = {"local": f"Local Whisper ({model_size})", "groq": "Groq API", "openai": "OpenAI API"}[api_type]
                     with st.spinner(f"Processing audio with {api_label}... This may take a few minutes."):
                         # Create temp directory for audio
@@ -398,9 +407,7 @@ with tab2:
 
                         clip_count, debug_info = result
 
-                        _report(issue_report.record_event, "extract_audio",
-                            {"file": audio_file.name, "api_type": api_type, "model_size": model_size,
-                             "use_vad": use_vad, "buffer_ms": buffer_ms, "api_key": current_api_key},
+                        _report(issue_report.record_event, "extract_audio_result", {},
                             debug_info,
                         )
 
@@ -490,8 +497,9 @@ with tab2:
                         uploads = [(f.name, f.getvalue()) for f in audio_clip_files]
                         for _n, _d in uploads:
                             _report(issue_report.record_upload, _n, _d)
+                        _report(issue_report.record_event, "use_audio_clips", {"files": [n for n, _ in uploads]})
                         result = save_numbered_audio(uploads, st.session_state.temp_audio)
-                        _report(issue_report.record_event, "use_audio_clips", {"files": [n for n, _ in uploads]}, result)
+                        _report(issue_report.record_event, "use_audio_clips_result", {}, result)
 
                         st.session_state.audio_files = sorted(
                             [f for f in os.listdir(st.session_state.temp_audio) if f.endswith('.mp3')],
@@ -771,6 +779,10 @@ with tab4:
                     else:  # both_sides
                         model_name = "Vocabulary (Both on Front)"
                     
+                    _report(issue_report.record_event, "create_deck",
+                        {"card_style": card_style, "deck_name": deck_name, "tags": tags,
+                         "unit_session": unit_session},
+                    )
                     apkg_path = create_anki_deck(
                         st.session_state.paired_files,
                         st.session_state.temp_final,
@@ -781,9 +793,7 @@ with tab4:
                         card_style=card_style
                     )
 
-                    _report(issue_report.record_event, "create_deck",
-                        {"card_style": card_style, "deck_name": deck_name, "tags": tags,
-                         "unit_session": unit_session},
+                    _report(issue_report.record_event, "create_deck_result", {},
                         {"pairs": len(st.session_state.paired_files)},
                     )
 
@@ -814,7 +824,8 @@ with st.sidebar:
     with st.expander("🐞 Report an issue", expanded=False):
         st.caption(
             "Downloads a zip with your uploaded files (documents, recordings, photos), "
-            "the app's outputs and debug logs. Send it to the maintainer."
+            "the app's outputs and debug logs. Send it to the maintainer. "
+            "Prepare again after trying more steps."
         )
         report_note = st.text_area("What went wrong?", key="report_note")
         if st.button("Prepare report", key="prepare_report_btn"):
