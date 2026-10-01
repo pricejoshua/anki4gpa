@@ -570,18 +570,22 @@ def save_numbered_audio(uploads, output_folder):
             result['skipped_duplicate'].append(filename)
             continue
 
+        # Write to a temp file and swap it in, so a failed upload never
+        # clobbers an existing clip with the same number.
         out_path = os.path.join(output_folder, f"{num}.mp3")
+        tmp_path = f"{out_path}.part"
         try:
             clip = AudioSegment.from_file(BytesIO(data))
             if filename.lower().endswith(".mp3"):
-                with open(out_path, "wb") as f:
+                with open(tmp_path, "wb") as f:
                     f.write(data)
             else:
-                clip.export(out_path, format="mp3")
+                clip.export(tmp_path, format="mp3")
+            os.replace(tmp_path, out_path)
         except Exception:
             try:
-                if os.path.exists(out_path):
-                    os.remove(out_path)
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
             except OSError:
                 pass
             result['skipped_unreadable'].append(filename)

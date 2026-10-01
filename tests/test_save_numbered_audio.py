@@ -123,3 +123,51 @@ def test_partial_output_removed_when_export_fails(tmp_path, monkeypatch):
     assert result["skipped_unreadable"] == ["5.wav"]
     assert result["saved"] == []
     assert os.listdir(tmp_path) == []
+
+
+def test_replaces_existing_clip_in_folder(tmp_path):
+    (tmp_path / "8.mp3").write_bytes(b"old clip")
+    new = _audio_bytes("mp3", ms=700)
+
+    result = save_numbered_audio([("8.mp3", new)], str(tmp_path))
+
+    assert result["saved"] == [8]
+    assert (tmp_path / "8.mp3").read_bytes() == new
+
+
+def test_adds_missing_number_alongside_existing_clips(tmp_path):
+    (tmp_path / "8.mp3").write_bytes(b"clip 8")
+    (tmp_path / "10.mp3").write_bytes(b"clip 10")
+
+    result = save_numbered_audio([("9.wav", _audio_bytes("wav"))], str(tmp_path))
+
+    assert result["saved"] == [9]
+    assert sorted(os.listdir(tmp_path)) == ["10.mp3", "8.mp3", "9.mp3"]
+    assert (tmp_path / "8.mp3").read_bytes() == b"clip 8"
+
+
+def test_unreadable_replacement_keeps_existing_clip(tmp_path):
+    (tmp_path / "8.mp3").write_bytes(b"good existing clip")
+
+    result = save_numbered_audio([("8.mp3", b"not audio")], str(tmp_path))
+
+    assert result["skipped_unreadable"] == ["8.mp3"]
+    assert (tmp_path / "8.mp3").read_bytes() == b"good existing clip"
+
+
+def test_failed_export_keeps_existing_clip_and_leaves_no_temp(tmp_path, monkeypatch):
+    (tmp_path / "5.mp3").write_bytes(b"good existing clip")
+    data = _audio_bytes("wav")
+
+    def bad_export(self, out_f, *a, **kw):
+        with open(out_f, "wb") as f:
+            f.write(b"junk")
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(AudioSegment, "export", bad_export)
+
+    result = save_numbered_audio([("5.wav", data)], str(tmp_path))
+
+    assert result["skipped_unreadable"] == ["5.wav"]
+    assert os.listdir(tmp_path) == ["5.mp3"]
+    assert (tmp_path / "5.mp3").read_bytes() == b"good existing clip"

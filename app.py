@@ -546,6 +546,51 @@ with tab2:
             key='download_audio_zip'
         )
 
+        with st.expander("➕ Add or replace a clip", expanded=False):
+            st.caption(
+                "Upload one clip named with its card number (e.g. `9.mp3`). "
+                "It fills in a missing card or replaces the existing clip with that number."
+            )
+            add_clip_file = st.file_uploader(
+                "Clip",
+                type=['mp3', 'm4a', 'aac', 'wav', 'ogg', 'flac'],
+                key='add_clip'
+            )
+            if st.button("Add to clips", key='add_clip_btn'):
+                if add_clip_file is None:
+                    st.error("Please choose an audio file first")
+                else:
+                    try:
+                        clip_bytes = add_clip_file.getvalue()
+                        existing = set(st.session_state.audio_files)
+                        _report(issue_report.record_upload, add_clip_file.name, clip_bytes)
+                        _report(issue_report.record_event, "add_clip", {"file": add_clip_file.name})
+                        result = save_numbered_audio(
+                            [(add_clip_file.name, clip_bytes)], st.session_state.temp_audio
+                        )
+                        _report(issue_report.record_event, "add_clip_result", {}, result)
+                        if result['saved']:
+                            num = result['saved'][0]
+                            verb = "Replaced" if f"{num}.mp3" in existing else "Added"
+                            st.session_state.audio_files = sorted(
+                                [f for f in os.listdir(st.session_state.temp_audio) if f.endswith('.mp3')],
+                                key=lambda x: int(m.group()) if (m := re.search(r'\d+', x)) else 999
+                            )
+                            st.session_state.add_clip_message = (
+                                f"{verb} card {num}."
+                                + (" Run Pair Files again (Tab 3) to use it." if st.session_state.paired_files else "")
+                            )
+                            st.rerun()
+                        elif result['skipped_no_number']:
+                            st.warning(f"No card number found in the filename: {add_clip_file.name}")
+                        else:
+                            st.warning(f"Couldn't read that audio file: {add_clip_file.name}")
+                    except Exception as e:
+                        _report(issue_report.record_error, "add_clip", e)
+                        st.error(f"Error adding clip: {str(e)}")
+            if st.session_state.get("add_clip_message"):
+                st.success(st.session_state.pop("add_clip_message"))
+
         st.markdown("---")
 
         # Display audio clips
