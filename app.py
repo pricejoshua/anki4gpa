@@ -340,7 +340,7 @@ with tab2:
 
             # Model size only for local
             if api_type == "local":
-                model_size = st.selectbox("Model Size", ["tiny", "base", "small", "medium", "large"], index=2)
+                model_size = st.selectbox("Model Size", ["tiny", "base", "small", "medium", "large"], index=3)
                 use_vad = st.checkbox("Use VAD Filter", value=False, help="Voice Activity Detection - disable if getting 0 words transcribed")
             else:
                 model_size = "small"  # Default, not used for API

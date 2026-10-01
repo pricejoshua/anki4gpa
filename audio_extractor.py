@@ -265,7 +265,7 @@ def score_spans(spans):
     return complete, good
 
 
-def transcribe_with_local_whisper(audio_path, model_size="small", use_vad=False, prompt=None):
+def transcribe_with_local_whisper(audio_path, model_size="medium", use_vad=False, prompt=None):
     """Transcribe using local faster-whisper model"""
     from faster_whisper import WhisperModel
 
@@ -383,7 +383,7 @@ def transcribe_with_openai(audio_path, api_key=None, prompt=None):
     }
 
 
-def extract_audio_clips(input_file, output_dir, model_size="small", buffer_ms=400,
+def extract_audio_clips(input_file, output_dir, model_size="medium", buffer_ms=400,
                        use_vad=False, api_type="local", api_key=None,
                        progress_callback=None, debug=False, clip_duration_ms=3000):
     """
@@ -601,7 +601,7 @@ if __name__ == "__main__":
         print("Usage: python audio_extractor.py <input_audio> <output_folder> [options]")
         print("\nOptions:")
         print("  --api <local|groq|openai>  Whisper API to use (default: local)")
-        print("  --model <size>             Model size for local: tiny/base/small/medium/large (default: small)")
+        print("  --model <size>             Model size for local: tiny/base/small/medium/large (default: medium)")
         print("  --buffer <ms>              Buffer time in milliseconds (default: 400)")
         print("  --api-key <key>            API key for groq/openai (or set GROQ_API_KEY/OPENAI_API_KEY env var)")
         print("\nExamples:")
@@ -618,7 +618,7 @@ if __name__ == "__main__":
 
     # Parse optional arguments
     api_type = "local"
-    model_size = "small"
+    model_size = "medium"
     buffer_ms = 400
     api_key = None
 
