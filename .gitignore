@@ -58,3 +58,4 @@ Thumbs.db
 
 # Except bundled tutorial examples
 !examples/**/*
+logs/

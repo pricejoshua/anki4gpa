@@ -153,3 +153,20 @@ If you encounter issues:
 2. Review the build logs in your Space
 3. Open an issue in the GitHub repository
 4. Ask in the Hugging Face community forums
+
+## Usage log
+
+The app appends anonymous usage events (file names, sizes, hashes and step
+outcomes; never file contents, transcripts, tracebacks or API keys) to
+`logs/usage.jsonl`, one JSON object per line. Set the `LOG_DIR` environment
+variable to write somewhere else.
+
+On Hugging Face Spaces the container filesystem is ephemeral, so the log is
+lost on restart unless `LOG_DIR` points at persistent storage (for example
+`/data`, with persistent storage enabled for the Space).
+
+Read it with:
+
+```bash
+python tools/summarize_log.py
+```
