@@ -9,7 +9,7 @@ import os
 import re
 import xml.etree.ElementTree as ET
 from collections import defaultdict
-from PIL import Image
+from PIL import Image, ImageDraw
 from io import BytesIO
 
 
@@ -111,6 +111,86 @@ def _table_label(p, parents):
     return None
 
 
+_A_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+_WPS_NS = 'http://schemas.microsoft.com/office/word/2010/wordprocessingShape'
+_MC_NS = 'http://schemas.openxmlformats.org/markup-compatibility/2006'
+_SHAPE_NS_MAP = {'a': _A_NS, 'w': W_NS, 'wps': _WPS_NS}
+_EMU_PER_PX = 9525  # 96 dpi
+_SUPERSAMPLE = 3
+_FALLBACK_SCHEME = {'lt1': 'FFFFFF', 'dk1': '000000', 'lt2': 'EEECE1', 'dk2': '1F497D',
+                    'bg1': 'FFFFFF', 'tx1': '000000'}
+
+
+def _theme_colors(docx):
+    """Scheme colour name -> hex from the theme part (best effort)."""
+    colors = dict(_FALLBACK_SCHEME)
+    try:
+        root = ET.fromstring(docx.read('word/theme/theme1.xml'))
+    except (KeyError, ET.ParseError):
+        return colors
+    scheme = root.find('.//a:clrScheme', _SHAPE_NS_MAP)
+    for el in (scheme if scheme is not None else []):
+        name = el.tag.split('}')[1]
+        for c in el:
+            val = c.get('val') if c.tag.endswith('srgbClr') else c.get('lastClr')
+            if val:
+                colors[name] = val
+    return colors
+
+
+def _solid_rgb(fill, theme):
+    """RGB tuple for an element holding a solidFill child, else None."""
+    solid = fill.find('a:solidFill', _SHAPE_NS_MAP) if fill is not None else None
+    if solid is None or len(solid) == 0:
+        return None
+    c = solid[0]
+    val = c.get('val')
+    if c.tag.endswith('schemeClr'):
+        val = theme.get(val)
+    try:
+        return tuple(int(val[i:i + 2], 16) for i in (0, 2, 4))
+    except (TypeError, ValueError):
+        return None
+
+
+def _render_shape(wsp, theme):
+    """
+    Render a filled, text-free preset shape (ellipse/rect) to an RGBA image, or
+    None if it isn't one. Word drawing shapes (e.g. coloured circles) have no
+    bitmap in the file, so there is nothing to copy out of word/media.
+    """
+    sp_pr = wsp.find('wps:spPr', _SHAPE_NS_MAP)
+    if sp_pr is None or any(t.text and t.text.strip() for t in wsp.iter(f'{{{W_NS}}}t')):
+        return None
+    fill = _solid_rgb(sp_pr, theme)
+    ext = sp_pr.find('a:xfrm/a:ext', _SHAPE_NS_MAP)
+    geom = sp_pr.find('a:prstGeom', _SHAPE_NS_MAP)
+    if fill is None or ext is None or geom is None:
+        return None
+    try:
+        w = max(round(int(ext.get('cx')) / _EMU_PER_PX), 1)
+        h = max(round(int(ext.get('cy')) / _EMU_PER_PX), 1)
+    except (TypeError, ValueError):
+        return None
+
+    ln = sp_pr.find('a:ln', _SHAPE_NS_MAP)
+    outline = _solid_rgb(ln, theme)
+    try:
+        ln_w = max(round(int(ln.get('w', 9525)) / _EMU_PER_PX), 1) if outline else 0
+    except (TypeError, ValueError):
+        ln_w = 1
+
+    k = _SUPERSAMPLE
+    img = Image.new('RGBA', (w * k, h * k), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    box = [0, 0, w * k - 1, h * k - 1]
+    kind = geom.get('prst')
+    draw_fn = draw.ellipse if kind == 'ellipse' else draw.rectangle
+    draw_fn(box, fill=fill + (255,), outline=(outline + (255,)) if outline else None,
+            width=ln_w * k)
+    return img.resize((w, h), Image.LANCZOS)
+
+
 def extract_numbered_images(docx_path, output_folder, convert_to_png=True):
     """
     Extracts all images from a Word .docx and names them according to
@@ -130,7 +210,8 @@ def extract_numbered_images(docx_path, output_folder, convert_to_png=True):
         'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
         'wp': 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing',
         'v': 'urn:schemas-microsoft-com:vml',
-        'pic': 'http://schemas.openxmlformats.org/drawingml/2006/picture'
+        'pic': 'http://schemas.openxmlformats.org/drawingml/2006/picture',
+        'wps': _WPS_NS,
     }
 
     with zipfile.ZipFile(docx_path, 'r') as docx:
@@ -168,7 +249,20 @@ def extract_numbered_images(docx_path, output_folder, convert_to_png=True):
                 counters[key] += 1
                 para_labels[i] = str(counters[key])
 
-        # Pass 2: find image relationship IDs in each paragraph
+        # Pass 2: find images in each paragraph. Word wraps drawings in
+        # mc:AlternateContent with a bitmap stand-in (often a 1x1 transparent PNG)
+        # under mc:Fallback; the real content is the Choice, so ignore the Fallback.
+        theme = _theme_colors(docx)
+        fallback_tag = f'{{{_MC_NS}}}Fallback'
+
+        def in_fallback(el):
+            el = parents.get(el)
+            while el is not None:
+                if el.tag == fallback_tag:
+                    return True
+                el = parents.get(el)
+            return False
+
         image_occurrences = []
         for i, p in enumerate(paras):
             for blip in p.findall('.//a:blip', ns):
@@ -176,7 +270,7 @@ def extract_numbered_images(docx_path, output_folder, convert_to_png=True):
                     blip.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed')
                     or blip.attrib.get('r:embed')
                 )
-                if rid:
+                if rid and not in_fallback(blip):
                     image_occurrences.append((i, rid))
             for im in p.findall('.//v:imagedata', ns):
                 rid = (
@@ -185,6 +279,13 @@ def extract_numbered_images(docx_path, output_folder, convert_to_png=True):
                 )
                 if rid:
                     image_occurrences.append((i, rid))
+            if convert_to_png:
+                for wsp in p.findall('.//wps:wsp', ns):
+                    if in_fallback(wsp):
+                        continue
+                    shape_img = _render_shape(wsp, theme)
+                    if shape_img is not None:
+                        image_occurrences.append((i, shape_img))
 
         # Map each image to the nearest numbered paragraph
         image_map = []
@@ -213,17 +314,23 @@ def extract_numbered_images(docx_path, output_folder, convert_to_png=True):
         counter = defaultdict(int)
         skipped = []
         for number, rid, _ in image_map:
-            if rid not in rels:
-                continue
-            target = rels[rid].split('/')[-1]
-            data = docx.read(f'word/media/{target}')
-            ext = os.path.splitext(target)[1].lower()
+            rendered = rid if isinstance(rid, Image.Image) else None
+            if rendered is None:
+                if rid not in rels:
+                    continue
+                target = rels[rid].split('/')[-1]
+                data = docx.read(f'word/media/{target}')
+                ext = os.path.splitext(target)[1].lower()
+            else:
+                target, data, ext = 'shape', None, '.png'
             display_num = number if number is not None else "unknown"
             n = counter[display_num] + 1
             suffix = f"_{n}" if n > 1 else ""
             path = os.path.join(output_folder, f"{display_num}{suffix}{'.png' if convert_to_png else ext}")
 
-            if convert_to_png:
+            if rendered is not None:
+                rendered.save(path, format="PNG")
+            elif convert_to_png:
                 try:
                     with Image.open(BytesIO(data)) as img:
                         img.convert("RGBA").save(path, format="PNG")

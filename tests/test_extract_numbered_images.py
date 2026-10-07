@@ -9,7 +9,10 @@ from image_extractor import extract_numbered_images
 W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ' \
     'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ' \
     'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ' \
-    'xmlns:v="urn:schemas-microsoft-com:vml"'
+    'xmlns:v="urn:schemas-microsoft-com:vml" ' \
+    'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" ' \
+    'xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" ' \
+    'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"'
 
 RED, GREEN, BLUE = (255, 0, 0), (0, 255, 0), (0, 0, 255)
 
@@ -209,3 +212,59 @@ def test_table_with_no_label_falls_through_to_paragraph_label(tmp_path):
     _, out = _run(tmp_path, body, _rgb_media())
     assert os.listdir(out) == ["4.png"]
     assert _color_of(out / "4.png") == RED
+
+
+def _shape(fill_xml, prst="ellipse", text=""):
+    """A native Word shape (as Google Docs exports) with a 1x1 transparent picture as mc:Fallback."""
+    body = f'<w:p><w:r><w:t>{text}</w:t></w:r></w:p>' if text else '<w:p/>'
+    return (
+        '<w:p><w:r><mc:AlternateContent><mc:Choice Requires="wpg"><w:drawing><wp:anchor>'
+        '<a:graphic><a:graphicData><wps:wsp><wps:spPr>'
+        '<a:xfrm><a:off x="0" y="0"/><a:ext cx="952500" cy="952500"/></a:xfrm>'
+        f'<a:prstGeom prst="{prst}"/>{fill_xml}'
+        '<a:ln w="9525"><a:solidFill><a:srgbClr val="0000FF"/></a:solidFill></a:ln>'
+        f'</wps:spPr><wps:txbx><w:txbxContent>{body}</w:txbxContent></wps:txbx></wps:wsp>'
+        '</a:graphicData></a:graphic></wp:anchor></w:drawing></mc:Choice>'
+        '<mc:Fallback><w:drawing><wp:anchor><a:graphic><a:graphicData>'
+        '<a:blip r:embed="rId9"/></a:graphicData></a:graphic></wp:anchor></w:drawing></mc:Fallback>'
+        '</mc:AlternateContent></w:r></w:p>'
+    )
+
+
+def _placeholder_media():
+    buf = BytesIO()
+    Image.new("RGBA", (1, 1), (0, 0, 0, 0)).save(buf, format="PNG")
+    return {"rId9": ("placeholder.png", buf.getvalue())}
+
+
+def test_native_shape_is_rendered_not_its_1x1_fallback(tmp_path):
+    body = _table(
+        _row(_cell(_text("1")), _cell(_text("2"))),
+        _row(
+            _cell(_shape('<a:solidFill><a:srgbClr val="FF0000"/></a:solidFill>')),
+            _cell(_shape('<a:solidFill><a:srgbClr val="00B050"/></a:solidFill>', prst="rect")),
+        ),
+    )
+    result, out = _run(tmp_path, body, _placeholder_media())
+    assert sorted(os.listdir(out)) == ["1.png", "2.png"]
+    assert result["count"] == 2
+    for name, rgb in (("1.png", (255, 0, 0)), ("2.png", (0, 176, 80))):
+        with Image.open(out / name) as img:
+            assert img.width > 20 and img.height > 20
+            assert img.convert("RGB").getpixel((img.width // 2, img.height // 2)) == rgb
+
+
+def test_ellipse_corners_are_transparent(tmp_path):
+    body = _text("1") + _shape('<a:solidFill><a:srgbClr val="FF0000"/></a:solidFill>')
+    _, out = _run(tmp_path, body, _placeholder_media())
+    with Image.open(out / "1.png") as img:
+        assert img.convert("RGBA").getpixel((0, 0))[3] == 0
+
+
+def test_unfilled_or_texted_shapes_are_ignored(tmp_path):
+    body = (
+        _text("1") + _shape('<a:noFill/>')
+        + _text("2") + _shape('<a:solidFill><a:srgbClr val="FF0000"/></a:solidFill>', text="label")
+    )
+    result, out = _run(tmp_path, body, _placeholder_media())
+    assert result["count"] == 0
