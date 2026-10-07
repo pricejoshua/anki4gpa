@@ -174,3 +174,13 @@ Read it with:
 ```bash
 python tools/summarize_log.py
 ```
+
+### Retrieving the log
+
+Set `ADMIN_TOKEN` as a Space secret (use a long random value). Then open
+`<space-url>/?admin=1` and enter it in the "Admin password" box at the bottom
+of the page to see the summary and download `usage.jsonl`. Without
+`ADMIN_TOKEN` the panel does not exist.
+
+Without persistent storage (a paid Space feature) the log is lost on every
+restart, so download it before redeploying.

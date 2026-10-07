@@ -4,12 +4,13 @@ Creates Anki flashcard decks from Word documents and audio files
 """
 
 import streamlit as st
+import hmac
 import os
 import re
 import shutil
 import tempfile
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 
 # Import our custom modules
@@ -19,6 +20,7 @@ from file_pairer import pair_files
 from deck_creator import create_anki_deck
 import issue_report
 import usage_log
+from tools import summarize_log
 
 
 # ============================================================================
@@ -67,6 +69,20 @@ if 'issue_report' not in st.session_state:
 if 'usage_session' not in st.session_state:
     st.session_state.usage_session = usage_log.new_session_id()
     usage_log.log_event(st.session_state.usage_session, "session_start")
+
+
+def _admin_token_ok(entered):
+    """True if `entered` matches the non-empty ADMIN_TOKEN env var (constant-time)."""
+    token = os.environ.get("ADMIN_TOKEN", "")
+    return bool(token) and hmac.compare_digest(entered.encode(), token.encode())
+
+
+def _usage_summary_text():
+    """Summary report of the usage log, or None if the log is missing/empty."""
+    events = summarize_log.load(usage_log.log_path())
+    if not events:
+        return None
+    return summarize_log.report(events, 30, datetime.now(timezone.utc))
 
 
 def _usage(fn, args):
@@ -1058,6 +1074,24 @@ with report_col:
                 key="download_report_btn",
             )
     st.caption("Anonymous usage stats (file names, sizes, step outcomes and settings such as model or card style) are logged to improve the app.")
+
+    if os.environ.get("ADMIN_TOKEN") and st.query_params.get("admin") == "1":
+        entered = st.text_input("Admin password", type="password", key="admin_pw")
+        if entered:
+            st.session_state.admin_ok = _admin_token_ok(entered)
+            if not st.session_state.admin_ok:
+                st.error("Incorrect password")
+        else:
+            st.session_state.admin_ok = False
+        if st.session_state.admin_ok:
+            summary = _usage_summary_text()
+            if summary is None:
+                st.info("No usage log yet.")
+            else:
+                st.code(summary, language=None)
+                with open(usage_log.log_path(), "rb") as f:
+                    st.download_button("Download usage.jsonl", data=f.read(), file_name="usage.jsonl",
+                                       mime="application/x-ndjson", key="download_usage_btn")
 
 st.markdown(
     """
