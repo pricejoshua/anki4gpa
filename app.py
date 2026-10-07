@@ -18,6 +18,7 @@ from audio_extractor import extract_audio_clips, save_numbered_audio
 from file_pairer import pair_files
 from deck_creator import create_anki_deck
 import issue_report
+import usage_log
 
 
 # ============================================================================
@@ -63,6 +64,30 @@ if 'paired_files' not in st.session_state:
     st.session_state.paired_files = []
 if 'issue_report' not in st.session_state:
     st.session_state.issue_report = issue_report.new_report_state()
+if 'usage_session' not in st.session_state:
+    st.session_state.usage_session = usage_log.new_session_id()
+    usage_log.log_event(st.session_state.usage_session, "session_start")
+
+
+def _usage(fn, args):
+    """Forward a recorder call to the anonymous usage log."""
+    name = fn.__name__
+    if name == "record_upload":
+        usage_log.log_event(st.session_state.usage_session, "upload",
+                            usage_log.file_fingerprint(*args))
+    elif name == "record_event":
+        step, settings, *rest = args
+        data = {}
+        if settings:
+            data["settings"] = usage_log.summarize_settings(settings)
+        debug = usage_log.summarize_debug(rest[0] if rest else None)
+        if debug:
+            data["debug"] = debug
+        usage_log.log_event(st.session_state.usage_session, step, data)
+    elif name == "record_error":
+        step, exc = args
+        usage_log.log_event(st.session_state.usage_session, "error",
+                            {"in": step, "type": type(exc).__name__})
 
 
 def _report(fn, *args):
@@ -73,6 +98,10 @@ def _report(fn, *args):
         st.session_state.pop("issue_report_zip", None)
     except Exception as e:
         print(f"[issue_report] {fn.__name__} failed: {e}")
+    try:
+        _usage(fn, args)
+    except Exception as e:
+        print(f"[usage_log] {fn.__name__} failed: {e}")
 
 
 # Header
@@ -968,6 +997,7 @@ with st.sidebar:
         st.session_state.paired_files = []
         st.session_state.issue_report = issue_report.clear_report(st.session_state.issue_report)
         st.session_state.pop("issue_report_zip", None)
+        usage_log.log_event(st.session_state.usage_session, "reset")
         st.success("All data cleared!")
         st.rerun()
 
@@ -1027,6 +1057,7 @@ with report_col:
                 mime="application/zip",
                 key="download_report_btn",
             )
+    st.caption("Anonymous usage stats (file names, sizes, step outcomes and settings such as model or card style) are logged to improve the app.")
 
 st.markdown(
     """

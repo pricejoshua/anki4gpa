@@ -153,3 +153,24 @@ If you encounter issues:
 2. Review the build logs in your Space
 3. Open an issue in the GitHub repository
 4. Ask in the Hugging Face community forums
+
+## Usage log
+
+The app appends anonymous usage events (file names, sizes, hashes and step
+outcomes; never file contents, transcripts, tracebacks or API keys) to
+`logs/usage.jsonl` inside the app directory, one JSON object per line. Set
+the `LOG_DIR` environment variable to write somewhere else.
+
+Logging works out of the box on Hugging Face Spaces: the Dockerfile creates a
+writable `logs/` directory. That directory is ephemeral, so the log is lost
+whenever the Space restarts or rebuilds. Setting `LOG_DIR=/data/logs` (with
+persistent storage enabled for the Space) keeps it.
+
+The Docker image has no `.git`, so set the `APP_VERSION` environment variable
+(for example to the commit hash) to make sessions attributable to a build.
+
+Read it with:
+
+```bash
+python tools/summarize_log.py
+```
