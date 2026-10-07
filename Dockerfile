@@ -24,6 +24,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY --chown=user . .
 
+# Writable directory for the anonymous usage log
+RUN mkdir -p logs && chown user:user logs
+
 # Switch to the "user" user
 USER user
 

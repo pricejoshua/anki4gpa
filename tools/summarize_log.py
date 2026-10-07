@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Summarize the anonymous usage log: funnel, abandoned sessions, common files/errors."""
+"""Summarize the anonymous usage log: funnel, abandoned sessions, common files/errors.
+
+A "session" is a page load: a browser refresh starts a new one. The funnel
+counts sessions reaching each step; extract_images/use_photos and
+extract_audio/use_audio_clips are alternative paths, so counts need not
+decrease monotonically.
+"""
 import argparse
 import json
 import os
@@ -10,7 +16,7 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import usage_log  # noqa: E402
 
-FUNNEL = ["upload", "extract_images_result", "use_photos_result", "extract_audio_result",
+FUNNEL = ["session_start", "upload", "extract_images_result", "use_photos_result", "extract_audio_result",
           "use_audio_clips_result", "pair_files", "create_deck", "create_deck_result"]
 
 
@@ -81,6 +87,7 @@ def report(events, idle_minutes, now):
          "", "Funnel (sessions reaching step)"]
     for step in FUNNEL:
         L.append(f"  {step:<24}{sum(1 for s in ss.values() if step in s['steps'])}")
+    L.append("  (extract_* and use_* are alternative paths; counts need not decrease)")
     L += ["", "Abandoned by last step"]
     if not aband:
         L.append("  (none)")

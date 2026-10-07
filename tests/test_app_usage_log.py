@@ -101,6 +101,11 @@ try:
 except ValueError as e:
     _report(issue_report.record_error, "extract_audio", e)
 _report(print, "ignored")
+if st.session_state.get("fail_recorder"):
+    def record_event(*a, **k):
+        raise RuntimeError("x")
+    _report(record_event, "create_deck",
+            {"deck_name": "TOPSECRETDECK", "tags": "TAGTEXT", "unit_session": "UNITTEXT"})
 '''
 
 
@@ -122,3 +127,16 @@ def test_report_forwards_to_usage_log_without_secrets(tmp_path, monkeypatch):
     assert "ERRSECRET" not in raw and "boom" not in raw and "/home/x" not in raw
     assert lines[2]["data"] == {"in": "extract_audio", "type": "ValueError"}
     assert not any(_has_key(l, "traceback") for l in lines)
+
+
+def test_usage_logged_even_if_recorder_fails_and_no_free_text(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOG_DIR", str(tmp_path))
+    at = AppTest.from_string(_REPORT_SCRIPT, default_timeout=60)
+    at.session_state["fail_recorder"] = True
+    at.run()
+    assert not at.exception
+    raw = (tmp_path / "usage.jsonl").read_text()
+    lines = [json.loads(l) for l in raw.splitlines()]
+    assert lines[-1]["step"] == "create_deck"
+    assert lines[-1]["data"]["settings"]["deck_name_len"] == len("TOPSECRETDECK")
+    assert "TOPSECRETDECK" not in raw and "TAGTEXT" not in raw and "UNITTEXT" not in raw

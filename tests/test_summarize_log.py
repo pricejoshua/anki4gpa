@@ -55,7 +55,24 @@ def test_report(tmp_path):
     assert "extract_audio_result" in sect
     assert "stuck.mp3" in sect and "dead" in sect
     assert "ValueError" in sect and "extract_audio" in sect
-    assert "live" not in sect
+    assert "lecture.docx" not in sect
+
+
+def test_funnel_counts(tmp_path):
+    out = sl.report(sl.load(write(tmp_path)), 30, NOW)
+    funnel = out.split("Funnel (sessions reaching step)")[1].split("Abandoned by last step")[0]
+    counts = {l.split()[0]: l.split()[1] for l in funnel.splitlines() if l.startswith("  ") and l.split()[0] in sl.FUNNEL}
+    assert counts["session_start"] == "3"
+    assert counts["upload"] == "3"
+    assert counts["extract_images_result"] == "1"
+    assert counts["extract_audio_result"] == "1"
+    assert counts["create_deck_result"] == "1"
+    assert "alternative" in funnel
+    assert list(counts)[0] == "session_start"
+
+
+def test_load_missing_file(tmp_path):
+    assert sl.load(str(tmp_path / "nope")) == []
 
 
 def test_empty():

@@ -79,7 +79,7 @@ def _usage(fn, args):
         step, settings, *rest = args
         data = {}
         if settings:
-            data["settings"] = issue_report.redact(settings)
+            data["settings"] = usage_log.summarize_settings(settings)
         debug = usage_log.summarize_debug(rest[0] if rest else None)
         if debug:
             data["debug"] = debug
@@ -98,7 +98,6 @@ def _report(fn, *args):
         st.session_state.pop("issue_report_zip", None)
     except Exception as e:
         print(f"[issue_report] {fn.__name__} failed: {e}")
-        return
     try:
         _usage(fn, args)
     except Exception as e:
@@ -1058,7 +1057,7 @@ with report_col:
                 mime="application/zip",
                 key="download_report_btn",
             )
-    st.caption("Anonymous usage stats (file names, sizes and step outcomes) are logged to improve the app.")
+    st.caption("Anonymous usage stats (file names, sizes, step outcomes and settings such as model or card style) are logged to improve the app.")
 
 st.markdown(
     """
