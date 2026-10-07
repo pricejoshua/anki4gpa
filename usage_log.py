@@ -15,8 +15,6 @@ from datetime import datetime, timezone
 
 import issue_report
 
-_MAX_STR = 120
-
 
 def log_path():
     return os.path.join(os.environ.get("LOG_DIR", "logs"), "usage.jsonl")
@@ -34,16 +32,16 @@ def file_fingerprint(name, data):
 
 
 def summarize_debug(debug):
-    """Compact, redacted view of a debug dict: scalars kept, collections as lengths."""
+    """Compact, redacted view of a debug dict: scalars kept; strings and collections only as lengths (never text)."""
     if not isinstance(debug, dict):
         return {}
     out = {}
     for k, v in issue_report.redact(debug).items():
         if v is None or isinstance(v, (bool, int, float)):
             out[k] = v
-        elif isinstance(v, str):
-            out[k] = v[:_MAX_STR]
-        elif isinstance(v, (list, tuple, dict)):
+        elif v == "[redacted]":
+            out[k] = v
+        elif isinstance(v, (str, list, tuple, dict)):
             out[f"{k}_len"] = len(v)
     return out
 

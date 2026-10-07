@@ -72,6 +72,6 @@ def test_summarize_debug():
     assert out["n"] == 3 and out["flag"] is True and out["none"] is None
     assert out["items_len"] == 500 and "items" not in out
     assert out["d_len"] == 1
-    assert len(out["long"]) == 120
+    assert out["long_len"] == 500 and "long" not in out
     assert usage_log.summarize_debug(None) == {}
     assert usage_log.summarize_debug("nope") == {}

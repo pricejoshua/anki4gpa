@@ -94,9 +94,10 @@ if "issue_report" not in st.session_state:
 _report = ns["_report"]
 _report(issue_report.record_upload, "dir/Lesson.DOCX", b"secret contents")
 _report(issue_report.record_event, "extract_audio",
-        {"file": "a.mp3", "api_key": "sk-SECRET-VALUE"}, {"clips": [1, 2, 3], "token": "tok-SECRET"})
+        {"file": "a.mp3", "api_key": "sk-SECRET-VALUE"},
+        {"clips": [1, 2, 3], "token": "tok-SECRET", "transcription": "SECRET-TRANSCRIPT words " * 20})
 try:
-    raise ValueError("boom")
+    raise ValueError("boom sk-ERRSECRET /home/x/y")
 except ValueError as e:
     _report(issue_report.record_error, "extract_audio", e)
 _report(print, "ignored")
@@ -116,5 +117,8 @@ def test_report_forwards_to_usage_log_without_secrets(tmp_path, monkeypatch):
     assert lines[0]["data"]["name"] == "Lesson.DOCX"
     assert lines[0]["data"]["ext"] == ".docx"
     assert lines[1]["data"]["debug"]["clips_len"] == 3
-    assert lines[2]["data"] == {"in": "extract_audio", "type": "ValueError", "message": "boom"}
+    assert lines[1]["data"]["debug"]["transcription_len"] == len("SECRET-TRANSCRIPT words " * 20)
+    assert "TRANSCRIPT" not in raw and "words" not in raw
+    assert "ERRSECRET" not in raw and "boom" not in raw and "/home/x" not in raw
+    assert lines[2]["data"] == {"in": "extract_audio", "type": "ValueError"}
     assert not any(_has_key(l, "traceback") for l in lines)

@@ -87,7 +87,7 @@ def _usage(fn, args):
     elif name == "record_error":
         step, exc = args
         usage_log.log_event(st.session_state.usage_session, "error",
-                            {"in": step, "type": type(exc).__name__, "message": str(exc)[:300]})
+                            {"in": step, "type": type(exc).__name__})
 
 
 def _report(fn, *args):
