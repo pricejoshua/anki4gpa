@@ -69,3 +69,11 @@ def test_right_token_no_log(tmp_path, monkeypatch):
     _enter(at, TOKEN)
     assert any(i.value == "No usage log yet." for i in at.info)
     assert not [d for d in _downloads(at) if d.proto.label == "Download usage.jsonl"]
+
+
+def test_password_not_kept_in_session_state(tmp_path, monkeypatch):
+    for entered in (TOKEN, "wrong-pw-123"):
+        at = _app(tmp_path, monkeypatch, seed=True)
+        _enter(at, entered)
+        assert "admin_pw" not in at.session_state
+        assert entered not in [v for k, v in at.session_state.filtered_state.items()]

@@ -1076,7 +1076,7 @@ with report_col:
     st.caption("Anonymous usage stats (file names, sizes, step outcomes and settings such as model or card style) are logged to improve the app.")
 
     if os.environ.get("ADMIN_TOKEN") and st.query_params.get("admin") == "1":
-        entered = st.text_input("Admin password", type="password", key="admin_pw")
+        entered = st.text_input("Admin password", type="password")
         if entered:
             st.session_state.admin_ok = _admin_token_ok(entered)
             if not st.session_state.admin_ok:
@@ -1088,9 +1088,16 @@ with report_col:
             if summary is None:
                 st.info("No usage log yet.")
             else:
-                st.code(summary, language=None)
-                with open(usage_log.log_path(), "rb") as f:
-                    st.download_button("Download usage.jsonl", data=f.read(), file_name="usage.jsonl",
+                try:
+                    with open(usage_log.log_path(), "rb") as f:
+                        raw = f.read()
+                except OSError:
+                    raw = None
+                if raw is None:
+                    st.info("No usage log yet.")
+                else:
+                    st.code(summary, language=None)
+                    st.download_button("Download usage.jsonl", data=raw, file_name="usage.jsonl",
                                        mime="application/x-ndjson", key="download_usage_btn")
 
 st.markdown(
