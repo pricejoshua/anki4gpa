@@ -347,6 +347,22 @@ with tab1:
     # Display extracted images (shared by both image sources above)
     if st.session_state.image_files:
         st.subheader(f"Extracted Images ({len(st.session_state.image_files)})")
+
+        # Create ZIP file download button
+        image_zip_buffer = BytesIO()
+        with zipfile.ZipFile(image_zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for img_file in st.session_state.image_files:
+                img_path = os.path.join(st.session_state.temp_images, img_file)
+                zip_file.write(img_path, img_file)
+        image_zip_buffer.seek(0)
+
+        st.download_button(
+            label=f"📥 Download All Images ({len(st.session_state.image_files)} images)",
+            data=image_zip_buffer,
+            file_name="images.zip",
+            mime="application/zip",
+            key='download_images_zip'
+        )
         cols = st.columns(4)
         for idx, img_file in enumerate(st.session_state.image_files[:20]):  # Show first 20
             with cols[idx % 4]:
