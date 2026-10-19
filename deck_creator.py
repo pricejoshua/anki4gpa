@@ -9,7 +9,7 @@ import hashlib
 
 
 def create_anki_deck(paired_files, media_dir, deck_name="Vocabulary Deck",
-                     model_name="Vocabulary", tags=None, unit_session="",
+                     model_name="Vocabulary", tags=None,
                      card_style="audio_to_image"):
     """
     Create an Anki deck (.apkg) from paired audio and image files.
@@ -20,7 +20,6 @@ def create_anki_deck(paired_files, media_dir, deck_name="Vocabulary Deck",
         deck_name: Name of the Anki deck
         model_name: Name of the note type
         tags: List of tags to add to each card
-        unit_session: Prefix for card numbers (e.g., "Unit_1_Session_1")
         card_style: Card template style:
             - "audio_to_image": Two cards - Audio→Image and Image→Audio (default)
             - "audio_only": One card - Audio on front, Image on back
@@ -129,11 +128,13 @@ def create_anki_deck(paired_files, media_dir, deck_name="Vocabulary Deck",
         media_files.append(image_path)
 
         # Create note - for audio_to_image style, the note type has two templates
-        # so it will automatically create both cards
+        # so it will automatically create both cards. The GUID is salted with the
+        # deck name so card 7 of one deck doesn't overwrite card 7 of another on import.
         note = genanki.Note(
             model=my_model,
+            guid=genanki.guid_for(deck_name, number),
             fields=[
-                f"{unit_session}_{number}" if unit_session else str(number),
+                str(number),
                 f"[sound:{audio_filename}]",
                 f'<img src="{image_filename}">'
             ],
@@ -216,7 +217,6 @@ if __name__ == "__main__":
         deck_name=deck_name,
         model_name=model_name,
         tags=tags,
-        unit_session="",
         card_style=card_style
     )
 

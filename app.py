@@ -863,15 +863,16 @@ with tab4:
     col1, col2 = st.columns(2)
 
     with col1:
-        deck_name = st.text_input("Deck Name", value="My Vocabulary Deck")
+        deck_name = st.text_input("Deck Name", placeholder="e.g. Unit 2 Session 9")
 
     with col2:
         tags = st.text_input("Tags (comma-separated)", value="auto,vocab")
-        unit_session = st.text_input("Unit/Session Prefix", value="Unit_1_Session_1")
 
     if st.button("Generate Anki Deck (.apkg)", key='export_btn'):
         if not st.session_state.paired_files:
             st.error("Please pair files first (Tab 3)")
+        elif not deck_name.strip():
+            st.error("Please enter a deck name")
         else:
             try:
                 with st.spinner("Creating Anki deck..."):
@@ -886,8 +887,7 @@ with tab4:
                         model_name = "Vocabulary (Both on Front)"
                     
                     _report(issue_report.record_event, "create_deck",
-                        {"card_style": card_style, "deck_name": deck_name, "tags": tags,
-                         "unit_session": unit_session},
+                        {"card_style": card_style, "deck_name": deck_name, "tags": tags},
                     )
                     apkg_path = create_anki_deck(
                         st.session_state.paired_files,
@@ -895,7 +895,6 @@ with tab4:
                         deck_name,
                         model_name,
                         tags.split(','),
-                        unit_session,
                         card_style=card_style
                     )
 
